@@ -38,10 +38,12 @@ dotnet run --project src/Veil.AppHost
 docker compose -f docker-compose.dev.yml up -d
 dotnet run --project src/Veil.Api
 
-# вариант 3: свой локальный PostgreSQL и Redis — один раз создать роль и базы
+# вариант 3: свой локальный PostgreSQL — один раз создать роль и базы
 psql -U postgres -f scripts/init-local-postgres.sql
 # либо задать свои учётные данные через user secrets в src/Veil.Api:
 #   dotnet user-secrets set "ConnectionStrings:Postgres" "Host=localhost;Port=5432;Database=veil;Username=postgres;Password=<пароль>"
+# Redis для разработки не обязателен: при пустом ConnectionStrings:Redis API работает в
+# режиме одного экземпляра (presence, защита TOTP от replay и кэш в памяти, без SignalR backplane).
 
 # два терминала для чата
 dotnet run --project src/Veil.Client -- --server https://localhost:7443 --insecure

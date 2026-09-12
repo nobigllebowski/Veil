@@ -74,6 +74,13 @@ serialised and the chain can never fork. `AuditChainVerifier` re-walks the table
 `detail` is stored as `text` (not `jsonb`) and timestamps are truncated to microseconds before hashing, so the
 bytes that are hashed are exactly the bytes PostgreSQL returns.
 
+## Single-instance mode
+
+When `ConnectionStrings:Redis` is empty the infrastructure registers in-memory implementations of the presence
+tracker and the TOTP replay guard, HybridCache runs without an L2 and SignalR runs without a backplane. This is
+the development default; a deployment with more than one API instance must configure Redis, otherwise presence
+and replay protection are per-process and hub messages do not cross instances.
+
 ## Session validity
 
 Access tokens carry `sub`, `did` (device) and `sst` (security stamp). On every request the JWT handler checks

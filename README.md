@@ -112,16 +112,21 @@ If PostgreSQL already runs on your machine, create the development role and data
 psql -U postgres -f scripts/init-local-postgres.sql
 ```
 
-Or keep your own credentials and override the connection strings with user secrets:
+Or keep your own credentials and override the connection string with user secrets:
 
 ```bash
 cd src/Veil.Api
 dotnet user-secrets set "ConnectionStrings:Postgres" "Host=localhost;Port=5432;Database=veil;Username=postgres;Password=<your password>"
-dotnet user-secrets set "ConnectionStrings:Redis" "localhost:6379"
 ```
 
-The API checks both services at startup and exits with an explanatory message when one is unreachable
-or the credentials are wrong (PostgreSQL SQLSTATE `28P01`).
+Redis is **optional in development**: with an empty `ConnectionStrings:Redis` (the default in
+`appsettings.Development.json`) the API runs in single-instance mode with in-memory presence, TOTP replay
+protection and cache, and no SignalR backplane. Set `ConnectionStrings:Redis` to `localhost:6379` to use the
+Redis from `docker-compose.dev.yml`. Production deployments always configure Redis.
+
+The API checks the configured services at startup and exits with an explanatory message when one is
+unreachable or the credentials are wrong (PostgreSQL SQLSTATE `28P01`); under a debugger the same message is
+raised as an exception so Visual Studio shows the cause instead of "cannot connect to the web server".
 
 ### Option C — full stack with TLS
 

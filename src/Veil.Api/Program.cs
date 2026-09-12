@@ -82,15 +82,21 @@ builder.Services.AddProblemDetails(options =>
     });
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
-builder.Services.AddSignalR(options =>
+var redisConfigured = Veil.Infrastructure.DependencyInjection.IsRedisConfigured(builder.Configuration);
+
+var signalR = builder.Services.AddSignalR(options =>
     {
         options.EnableDetailedErrors = builder.Environment.IsDevelopment();
         options.MaximumReceiveMessageSize = 64 * 1024;
         options.KeepAliveInterval = TimeSpan.FromSeconds(15);
         options.ClientTimeoutInterval = TimeSpan.FromSeconds(60);
     })
-    .AddMessagePackProtocol()
-    .AddStackExchangeRedis(builder.Configuration.GetConnectionString("Redis")!, options => options.Configuration.ChannelPrefix = StackExchange.Redis.RedisChannel.Literal("veil"));
+    .AddMessagePackProtocol();
+
+if (redisConfigured)
+{
+    signalR.AddStackExchangeRedis(builder.Configuration.GetConnectionString("Redis")!, options => options.Configuration.ChannelPrefix = StackExchange.Redis.RedisChannel.Literal("veil"));
+}
 
 builder.Services.AddDataProtection()
     .SetApplicationName("veil")
@@ -116,9 +122,12 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     }
 });
 
-builder.Services.AddHealthChecks()
-    .AddNpgSql(builder.Configuration.GetConnectionString("Postgres")!, name: "postgres", tags: ["ready"])
-    .AddRedis(builder.Configuration.GetConnectionString("Redis")!, name: "redis", tags: ["ready"]);
+var healthChecks = builder.Services.AddHealthChecks()
+    .AddNpgSql(builder.Configuration.GetConnectionString("Postgres")!, name: "postgres", tags: ["ready"]);
+if (redisConfigured)
+{
+    healthChecks.AddRedis(builder.Configuration.GetConnectionString("Redis")!, name: "redis", tags: ["ready"]);
+}
 
 if (!builder.Environment.IsDevelopment())
 {

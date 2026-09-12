@@ -20,6 +20,10 @@ namespace Veil.Infrastructure;
 
 public static class DependencyInjection
 {
+    /// <summary>True when <c>ConnectionStrings:Redis</c> is set; otherwise the API runs in single-instance mode.</summary>
+    public static bool IsRedisConfigured(IConfiguration configuration) =>
+        !string.IsNullOrWhiteSpace(configuration?.GetConnectionString("Redis"));
+
     public static IServiceCollection AddVeilInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);
@@ -58,11 +62,26 @@ public static class DependencyInjection
         services.AddScoped<IConversationRepository, ConversationRepository>();
         services.AddScoped<IMessageRepository, MessageRepository>();
 
-        // Redis + caches
-        var redisConnection = configuration.GetConnectionString("Redis")
-            ?? throw new InvalidOperationException("ConnectionStrings:Redis is not configured.");
-        services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisConnection));
-        services.AddStackExchangeRedisCache(options => options.Configuration = redisConnection);
+        // Redis is required for multi-instance deployments (presence, TOTP replay guard, cache L2, SignalR backplane).
+        // Without a connection string the same features run in-process, which is fine for a single dev instance.
+        var redisConnection = configuration.GetConnectionString("Redis");
+        if (!string.IsNullOrWhiteSpace(redisConnection))
+        {
+            services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisConnection));
+            services.AddStackExchangeRedisCache(options => options.Configuration = redisConnection);
+            services.AddSingleton<ITotpReplayGuard, RedisTotpReplayGuard>();
+            services.AddSingleton<RedisPresenceService>();
+            services.AddSingleton<IPresenceService>(sp => sp.GetRequiredService<RedisPresenceService>());
+            services.AddSingleton<IPresenceTracker>(sp => sp.GetRequiredService<RedisPresenceService>());
+        }
+        else
+        {
+            services.AddSingleton<ITotpReplayGuard, InMemoryTotpReplayGuard>();
+            services.AddSingleton<InMemoryPresenceService>();
+            services.AddSingleton<IPresenceService>(sp => sp.GetRequiredService<InMemoryPresenceService>());
+            services.AddSingleton<IPresenceTracker>(sp => sp.GetRequiredService<InMemoryPresenceService>());
+        }
+
         services.AddHybridCache();
 
         // Security services
@@ -76,11 +95,6 @@ public static class DependencyInjection
         services.AddSingleton<ISessionCache>(sp => sp.GetRequiredService<ISessionValidator>());
         services.AddScoped<IAuditor, HashChainAuditor>();
         services.AddSingleton<AuditChainVerifier>();
-
-        // Realtime presence
-        services.AddSingleton<RedisPresenceService>();
-        services.AddSingleton<IPresenceService>(sp => sp.GetRequiredService<RedisPresenceService>());
-        services.AddSingleton<IPresenceTracker>(sp => sp.GetRequiredService<RedisPresenceService>());
 
         // Background workers
         services.AddHostedService<OutboxProcessor>();

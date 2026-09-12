@@ -214,3 +214,47 @@ public class AuditChainHashTests
         baseline.Length.ShouldBe(64);
     }
 }
+
+public class InMemoryFallbackTests
+{
+    [Fact]
+    public async Task Totp_replay_guard_accepts_each_step_once_and_forgets_after_retention()
+    {
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var guard = new InMemoryTotpReplayGuard(time);
+        var user = Guid.NewGuid();
+
+        (await guard.TryConsumeAsync(user, 100, TimeSpan.FromMinutes(2), CancellationToken.None)).ShouldBeTrue();
+        (await guard.TryConsumeAsync(user, 100, TimeSpan.FromMinutes(2), CancellationToken.None)).ShouldBeFalse();
+        (await guard.TryConsumeAsync(user, 101, TimeSpan.FromMinutes(2), CancellationToken.None)).ShouldBeTrue();
+        (await guard.TryConsumeAsync(Guid.NewGuid(), 100, TimeSpan.FromMinutes(2), CancellationToken.None)).ShouldBeTrue();
+
+        time.Advance(TimeSpan.FromMinutes(3));
+        (await guard.TryConsumeAsync(user, 100, TimeSpan.FromMinutes(2), CancellationToken.None)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Presence_tracks_connections_and_heartbeats()
+    {
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var presence = new Veil.Infrastructure.Realtime.InMemoryPresenceService(time);
+        var alice = Guid.NewGuid();
+        var bob = Guid.NewGuid();
+
+        await presence.ConnectedAsync(alice, "c1", CancellationToken.None);
+        await presence.ConnectedAsync(alice, "c2", CancellationToken.None);
+        (await presence.GetOnlineUsersAsync([alice, bob], CancellationToken.None)).ShouldBe([alice]);
+
+        await presence.DisconnectedAsync(alice, "c1", CancellationToken.None);
+        (await presence.GetOnlineUsersAsync([alice], CancellationToken.None)).ShouldContain(alice);
+
+        time.Advance(TimeSpan.FromMinutes(4));
+        (await presence.GetOnlineUsersAsync([alice], CancellationToken.None)).ShouldBeEmpty();
+
+        await presence.HeartbeatAsync(alice, CancellationToken.None);
+        (await presence.GetOnlineUsersAsync([alice], CancellationToken.None)).ShouldContain(alice);
+
+        await presence.DisconnectedAsync(alice, "c2", CancellationToken.None);
+        (await presence.GetOnlineUsersAsync([alice], CancellationToken.None)).ShouldBeEmpty();
+    }
+}
