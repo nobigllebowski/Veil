@@ -1,7 +1,6 @@
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
-using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 using Serilog;
 using Serilog.Formatting.Compact;
@@ -172,14 +171,13 @@ if (app.Configuration.GetValue("OpenApi:Enabled", app.Environment.IsDevelopment(
     app.MapScalarApiReference(options => options.WithTitle("Veil Messenger API").WithTheme(ScalarTheme.Kepler)).AllowAnonymous();
 }
 
-if (app.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
+if (!await StartupChecks.RunAsync(app))
 {
-    await using var scope = app.Services.CreateAsyncScope();
-    var context = scope.ServiceProvider.GetRequiredService<VeilDbContext>();
-    await context.Database.MigrateAsync();
+    return 1;
 }
 
 await app.RunAsync();
+return 0;
 
 /// <summary>Entry point marker for integration tests.</summary>
 public partial class Program;

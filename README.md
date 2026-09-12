@@ -103,6 +103,26 @@ docker compose -f docker-compose.dev.yml up -d      # PostgreSQL + Redis with de
 dotnet run --project src/Veil.Api                  # https://localhost:7443
 ```
 
+### Option B2 — an existing local PostgreSQL and Redis
+
+If PostgreSQL already runs on your machine, create the development role and databases once
+(superuser required), then start the API as above:
+
+```bash
+psql -U postgres -f scripts/init-local-postgres.sql
+```
+
+Or keep your own credentials and override the connection strings with user secrets:
+
+```bash
+cd src/Veil.Api
+dotnet user-secrets set "ConnectionStrings:Postgres" "Host=localhost;Port=5432;Database=veil;Username=postgres;Password=<your password>"
+dotnet user-secrets set "ConnectionStrings:Redis" "localhost:6379"
+```
+
+The API checks both services at startup and exits with an explanatory message when one is unreachable
+or the credentials are wrong (PostgreSQL SQLSTATE `28P01`).
+
 ### Option C — full stack with TLS
 
 ```bash
