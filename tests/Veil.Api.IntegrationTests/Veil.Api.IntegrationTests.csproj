@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Testcontainers.Redis" />
+    <PackageReference Include="Otp.NET" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Veil.Api/Veil.Api.csproj" />
+    <ProjectReference Include="../../src/Veil.Client.Sdk/Veil.Client.Sdk.csproj" />
+  </ItemGroup>
+
+</Project>

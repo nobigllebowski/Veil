@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Wire contracts of the Veil HTTP API, shared by the server and the client SDK.</Description>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>veil</AssemblyName>
+    <RootNamespace>Veil.Client</RootNamespace>
+    <Description>Terminal client for Veil: end-to-end encrypted chat from the command line.</Description>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Spectre.Console" />
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Veil.Client.Sdk/Veil.Client.Sdk.csproj" />
+  </ItemGroup>
+
+</Project>

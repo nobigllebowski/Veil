@@ -1,0 +1,30 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Veil.Contracts/Veil.Contracts.csproj" />
+    <Project Path="src/Veil.Crypto/Veil.Crypto.csproj" />
+    <Project Path="src/Veil.Domain/Veil.Domain.csproj" />
+    <Project Path="src/Veil.Application/Veil.Application.csproj" />
+    <Project Path="src/Veil.Infrastructure/Veil.Infrastructure.csproj" />
+    <Project Path="src/Veil.Api/Veil.Api.csproj" />
+    <Project Path="src/Veil.ServiceDefaults/Veil.ServiceDefaults.csproj" />
+    <Project Path="src/Veil.AppHost/Veil.AppHost.csproj" />
+    <Project Path="src/Veil.Client.Sdk/Veil.Client.Sdk.csproj" />
+    <Project Path="src/Veil.Client/Veil.Client.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Veil.Crypto.Tests/Veil.Crypto.Tests.csproj" />
+    <Project Path="tests/Veil.Domain.Tests/Veil.Domain.Tests.csproj" />
+    <Project Path="tests/Veil.Application.Tests/Veil.Application.Tests.csproj" />
+    <Project Path="tests/Veil.Infrastructure.Tests/Veil.Infrastructure.Tests.csproj" />
+    <Project Path="tests/Veil.Api.IntegrationTests/Veil.Api.IntegrationTests.csproj" />
+    <Project Path="tests/Veil.Architecture.Tests/Veil.Architecture.Tests.csproj" />
+  </Folder>
+  <Folder Name="/solution-items/">
+    <File Path="README.md" />
+    <File Path="SECURITY.md" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path=".editorconfig" />
+    <File Path="docker-compose.yml" />
+  </Folder>
+</Solution>

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Veil domain model: aggregates, value objects, domain events and invariants.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Veil.Crypto/Veil.Crypto.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Veil.Domain.Tests" />
+    <InternalsVisibleTo Include="Veil.Application.Tests" />
+  </ItemGroup>
+
+</Project>

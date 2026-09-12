@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Veil end-to-end encryption protocol: PQXDH (X25519 + ML-KEM-768) key agreement and the Double Ratchet.</Description>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BouncyCastle.Cryptography" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Veil.Crypto.Tests" />
+  </ItemGroup>
+
+</Project>

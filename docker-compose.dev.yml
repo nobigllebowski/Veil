@@ -1,0 +1,22 @@
+# Backing services only, matching src/Veil.Api/appsettings.Development.json.
+name: veil-dev
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: veil
+      POSTGRES_USER: veil
+      POSTGRES_PASSWORD: veil_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - dev-postgres:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  dev-postgres:
