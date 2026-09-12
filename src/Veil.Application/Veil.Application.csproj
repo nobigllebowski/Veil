@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Veil application layer: use cases, ports and cross-cutting pipeline behaviors.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Veil.Contracts/Veil.Contracts.csproj" />
+    <ProjectReference Include="../Veil.Domain/Veil.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Veil.Application.Tests" />
+    <InternalsVisibleTo Include="Veil.Api.IntegrationTests" />
+  </ItemGroup>
+
+</Project>

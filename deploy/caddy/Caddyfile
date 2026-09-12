@@ -1,0 +1,15 @@
+# TLS termination in front of the API. For "localhost" Caddy issues a locally-trusted certificate;
+# for a real domain it obtains one from Let's Encrypt automatically.
+{$VEIL_DOMAIN} {
+    encode zstd gzip
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        -Server
+    }
+
+    reverse_proxy api:8080 {
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-For {remote_host}
+    }
+}

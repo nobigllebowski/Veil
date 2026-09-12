@@ -1,0 +1,21 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.5.3">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsAspireHost>true</IsAspireHost>
+    <UserSecretsId>veil-apphost-9c1d2e3f-4a5b-4c6d-8e7f-a0b1c2d3e4f5</UserSecretsId>
+    <NoWarn>$(NoWarn);ASPIRE010</NoWarn>
+    <Description>.NET Aspire orchestration for local development: PostgreSQL, Redis and the API with one F5.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.AppHost" />
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" />
+    <PackageReference Include="Aspire.Hosting.Redis" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Veil.Api/Veil.Api.csproj" />
+  </ItemGroup>
+
+</Project>

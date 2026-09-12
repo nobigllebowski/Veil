@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="NetArchTest.Rules" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Veil.Api/Veil.Api.csproj" />
+    <ProjectReference Include="../../src/Veil.Client.Sdk/Veil.Client.Sdk.csproj" />
+  </ItemGroup>
+
+</Project>
