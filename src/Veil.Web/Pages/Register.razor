@@ -1,0 +1,80 @@
+@page "/register"
+@inject AppSession Session
+@inject NavigationManager Nav
+
+<PageTitle>Create account · Veil</PageTitle>
+
+<div class="auth-screen">
+    <div class="auth-card">
+        <div class="brand">
+            <span class="brand-mark">V</span>
+            <h1>Create your account</h1>
+            <p class="muted">A username, an e-mail and a strong password (12+ characters). That is all the server will know about you.</p>
+        </div>
+
+        <EditForm Model="this" OnValidSubmit="Submit">
+            <label class="field">
+                <span>Username</span>
+                <input @bind="_username" autocomplete="username" required minlength="3" maxlength="32" pattern="[a-zA-Z0-9._]+" />
+            </label>
+            <label class="field">
+                <span>Display name</span>
+                <input @bind="_displayName" autocomplete="name" maxlength="64" />
+            </label>
+            <label class="field">
+                <span>E-mail</span>
+                <input type="email" @bind="_email" autocomplete="email" required />
+            </label>
+            <label class="field">
+                <span>Password</span>
+                <input type="password" @bind="_password" autocomplete="new-password" required minlength="12" maxlength="128" />
+            </label>
+            @if (_error is not null)
+            {
+                <p class="form-error">@_error</p>
+            }
+            <button class="btn btn-block" type="submit" disabled="@_busy">@(_busy ? _status : "Create account")</button>
+        </EditForm>
+
+        <p class="auth-switch">Already registered? <a href="/login">Sign in</a></p>
+    </div>
+</div>
+
+@code {
+    private string _username = string.Empty;
+    private string _displayName = string.Empty;
+    private string _email = string.Empty;
+    private string _password = string.Empty;
+    private bool _busy;
+    private string _status = "Creating…";
+    private string? _error;
+
+    private async Task Submit()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            _status = "Creating account…";
+            await Session.RegisterAsync(_username.Trim(), _email.Trim(), _password, string.IsNullOrWhiteSpace(_displayName) ? null : _displayName.Trim());
+            _status = "Generating your encryption keys…";
+            StateHasChanged();
+            await Session.LoginAsync(_username.Trim(), _password, null);
+            Nav.NavigateTo("/");
+        }
+        catch (VeilApiException ex)
+        {
+            _error = ex.Problem?.Errors is { Count: > 0 } errors
+                ? string.Join(" ", errors.SelectMany(e => e.Value))
+                : ex.Message;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException)
+        {
+            _error = "Cannot reach the server: " + ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

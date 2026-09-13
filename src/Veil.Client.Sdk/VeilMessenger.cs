@@ -7,10 +7,14 @@ using Veil.Crypto.Protocol;
 
 namespace Veil.Client.Sdk;
 
-/// <summary>Plaintext structure carried inside every envelope. Binding the conversation id prevents the server from re-routing ciphertext.</summary>
-public sealed record ChatMessage(string Type, Guid ConversationId, string Body, DateTimeOffset SentAt)
+/// <summary>
+/// Plaintext structure carried inside every envelope. Binding the conversation id prevents the server from
+/// re-routing ciphertext; the message id lets recipients acknowledge delivery with an encrypted receipt.
+/// </summary>
+public sealed record ChatMessage(Guid Id, string Type, Guid ConversationId, string Body, DateTimeOffset SentAt, Guid? RefId = null)
 {
     public const string TextType = "text";
+    public const string ReceiptType = "receipt";
 }
 
 public sealed record IncomingMessage(Guid EnvelopeId, Guid ConversationId, Guid SenderUserId, Guid SenderDeviceId, ChatMessage Message, DateTimeOffset ReceivedAt);
@@ -19,13 +23,15 @@ public sealed record IdentityChange(Guid UserId, Guid DeviceId, string PreviousF
 
 /// <summary>
 /// End-to-end encryption session manager for one device. Owns the private keys, establishes PQXDH sessions
-/// from pre-key bundles, fans out ciphertext to every device in a conversation and decrypts incoming envelopes.
-/// The server only ever sees what this class hands to <see cref="VeilApiClient"/>.
+/// from pre-key bundles, fans out ciphertext to every device of the addressed users, decrypts incoming envelopes,
+/// keeps the local (encrypted-at-rest) history and exchanges delivery receipts. The server only ever sees what
+/// this class hands to <see cref="VeilApiClient"/>.
 /// </summary>
 public sealed class VeilMessenger : IDisposable
 {
     private const int OneTimePreKeyLowWatermark = 20;
     private const int OneTimePreKeyBatch = 50;
+    private const int MaxHistoryPerConversation = 2000;
 
     private readonly VeilApiClient _api;
     private readonly ClientState _state;
@@ -60,7 +66,13 @@ public sealed class VeilMessenger : IDisposable
     /// <summary>Policy for a peer device whose identity key changed since it was pinned.</summary>
     public bool RejectChangedIdentities { get; set; }
 
+    /// <summary>Whether to answer received text messages with an encrypted delivery receipt.</summary>
+    public bool SendDeliveryReceipts { get; set; } = true;
+
     public event Action<IdentityChange>? IdentityChanged;
+    public event Action<StoredMessage>? MessageStored;
+    public event Action<StoredMessage>? MessageUpdated;
+    public event Action<string>? Warning;
 
     public ClientState State => _state;
     public bool HasDevice => _state.DeviceId is not null && _keys is not null;
@@ -95,43 +107,32 @@ public sealed class VeilMessenger : IDisposable
         }
     }
 
-    /// <summary>Encrypts <paramref name="text"/> separately for every device of every member and sends the batch.</summary>
-    public async Task<SendReceipt> SendTextAsync(Guid conversationId, string text, CancellationToken ct = default)
+    /// <summary>Encrypts <paramref name="text"/> separately for every device of every member, sends the batch and records it in history.</summary>
+    public async Task<StoredMessage> SendTextAsync(Guid conversationId, string text, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(text);
         await _gate.WaitAsync(ct);
         try
         {
             RequireDevice();
-            var message = new ChatMessage(ChatMessage.TextType, conversationId, text, DateTimeOffset.UtcNow);
-            var plaintext = JsonSerializer.SerializeToUtf8Bytes(message, ClientState.Json);
-
+            var message = new ChatMessage(Guid.CreateVersion7(), ChatMessage.TextType, conversationId, text, DateTimeOffset.UtcNow);
             var conversation = await _api.GetConversationAsync(conversationId, ct);
-            var envelopes = await EncryptForConversationAsync(conversation, plaintext, ct);
+            await SendToAsync(conversation, message, conversation.Members.Select(m => m.UserId).ToHashSet(), ct);
 
-            try
+            var stored = new StoredMessage
             {
-                var receipt = await _api.SendEnvelopesAsync(conversationId, envelopes, ct);
-                await PersistAsync(ct);
-                return receipt;
-            }
-            catch (VeilApiException ex) when (ex.IsDeviceSetMismatch)
-            {
-                // A member added or revoked a device between our lookup and the send: drop stale sessions, re-encrypt once.
-                foreach (var mismatch in ex.Problem?.Mismatches ?? [])
-                {
-                    foreach (var stale in mismatch.StaleDeviceIds)
-                    {
-                        ForgetSession(mismatch.UserId, stale);
-                    }
-                }
-
-                conversation = await _api.GetConversationAsync(conversationId, ct);
-                envelopes = await EncryptForConversationAsync(conversation, plaintext, ct);
-                var receipt = await _api.SendEnvelopesAsync(conversationId, envelopes, ct);
-                await PersistAsync(ct);
-                return receipt;
-            }
+                Id = message.Id,
+                ConversationId = conversationId,
+                SenderUserId = _state.UserId,
+                Body = text,
+                SentAt = message.SentAt,
+                Outgoing = true,
+                Status = MessageStatus.Sent,
+            };
+            AppendHistory(stored);
+            await PersistAsync(ct);
+            MessageStored?.Invoke(stored);
+            return stored;
         }
         finally
         {
@@ -139,7 +140,7 @@ public sealed class VeilMessenger : IDisposable
         }
     }
 
-    /// <summary>Fetches, decrypts and acknowledges everything waiting for this device.</summary>
+    /// <summary>Fetches, decrypts, records and acknowledges everything waiting for this device. Returns the new text messages.</summary>
     public async Task<IReadOnlyList<IncomingMessage>> PullAsync(CancellationToken ct = default)
     {
         await _gate.WaitAsync(ct);
@@ -147,6 +148,7 @@ public sealed class VeilMessenger : IDisposable
         {
             RequireDevice();
             var received = new List<IncomingMessage>();
+            var receiptsToSend = new List<(Guid ConversationId, Guid SenderUserId, Guid MessageId)>();
             var processed = new List<Guid>();
             var consumedPreKey = false;
 
@@ -167,7 +169,40 @@ public sealed class VeilMessenger : IDisposable
                             continue;
                         }
 
-                        received.Add(new IncomingMessage(item.Id, item.ConversationId, item.SenderUserId, item.SenderDeviceId, message, DateTimeOffset.UtcNow));
+                        switch (message.Type)
+                        {
+                            case ChatMessage.TextType:
+                                var isOwn = item.SenderUserId == _state.UserId;
+                                var stored = new StoredMessage
+                                {
+                                    Id = message.Id,
+                                    ConversationId = message.ConversationId,
+                                    SenderUserId = item.SenderUserId,
+                                    Body = message.Body,
+                                    SentAt = message.SentAt,
+                                    Outgoing = isOwn,
+                                    Status = isOwn ? MessageStatus.Sent : MessageStatus.Received,
+                                };
+                                if (AppendHistory(stored))
+                                {
+                                    MessageStored?.Invoke(stored);
+                                    received.Add(new IncomingMessage(item.Id, item.ConversationId, item.SenderUserId, item.SenderDeviceId, message, DateTimeOffset.UtcNow));
+                                    if (!isOwn && SendDeliveryReceipts)
+                                    {
+                                        receiptsToSend.Add((message.ConversationId, item.SenderUserId, message.Id));
+                                    }
+                                }
+
+                                break;
+
+                            case ChatMessage.ReceiptType when message.RefId is { } refId:
+                                ApplyReceipt(message.ConversationId, refId);
+                                break;
+
+                            default:
+                                Warn($"Unknown message type '{message.Type}' from {item.SenderUserId:N}; ignored.");
+                                break;
+                        }
                     }
                     catch (CryptoException ex)
                     {
@@ -182,6 +217,11 @@ public sealed class VeilMessenger : IDisposable
                 }
             }
             while (pending.Count > 0);
+
+            foreach (var (conversationId, senderUserId, messageId) in receiptsToSend)
+            {
+                await TrySendReceiptAsync(conversationId, senderUserId, messageId, ct);
+            }
 
             if (consumedPreKey)
             {
@@ -212,6 +252,22 @@ public sealed class VeilMessenger : IDisposable
         }
     }
 
+    /// <summary>Local history of a conversation, oldest first.</summary>
+    public IReadOnlyList<StoredMessage> History(Guid conversationId) =>
+        _state.History.TryGetValue(conversationId.ToString("N"), out var list) ? list : [];
+
+    public int UnreadCount(Guid conversationId)
+    {
+        var lastRead = _state.LastRead.GetValueOrDefault(conversationId.ToString("N"), DateTimeOffset.MinValue);
+        return History(conversationId).Count(m => !m.Outgoing && m.SentAt > lastRead);
+    }
+
+    public async Task MarkReadAsync(Guid conversationId, CancellationToken ct = default)
+    {
+        _state.LastRead[conversationId.ToString("N")] = DateTimeOffset.UtcNow;
+        await _store.SaveAsync(_state, ct);
+    }
+
     /// <summary>Safety number to compare out-of-band with a peer for one of their devices.</summary>
     public string SafetyNumberWith(string remoteUsername, IdentityPublicKeys remoteIdentity)
     {
@@ -224,18 +280,63 @@ public sealed class VeilMessenger : IDisposable
         : _state.Sessions.TryGetValue(ClientState.PeerKey(userId, deviceId), out var stored) ? stored.RemoteIdentity
         : null;
 
-    public event Action<string>? Warning;
-
     public void Dispose()
     {
         _keys?.Dispose();
         _gate.Dispose();
     }
 
-    private async Task<List<OutgoingEnvelope>> EncryptForConversationAsync(ConversationSummary conversation, byte[] plaintext, CancellationToken ct)
+    private async Task SendToAsync(ConversationSummary conversation, ChatMessage message, IReadOnlySet<Guid> targetUserIds, CancellationToken ct)
+    {
+        var plaintext = JsonSerializer.SerializeToUtf8Bytes(message, ClientState.Json);
+        var envelopes = await EncryptForAsync(conversation, plaintext, targetUserIds, ct);
+        if (envelopes.Count == 0)
+        {
+            return; // nobody else has a device yet; history still records the message locally
+        }
+
+        try
+        {
+            await _api.SendEnvelopesAsync(conversation.Id, envelopes, ct);
+        }
+        catch (VeilApiException ex) when (ex.IsDeviceSetMismatch)
+        {
+            // A member added or revoked a device between our lookup and the send: drop stale sessions, re-encrypt once.
+            foreach (var mismatch in ex.Problem?.Mismatches ?? [])
+            {
+                foreach (var stale in mismatch.StaleDeviceIds)
+                {
+                    ForgetSession(mismatch.UserId, stale);
+                }
+            }
+
+            conversation = await _api.GetConversationAsync(conversation.Id, ct);
+            envelopes = await EncryptForAsync(conversation, plaintext, targetUserIds, ct);
+            if (envelopes.Count > 0)
+            {
+                await _api.SendEnvelopesAsync(conversation.Id, envelopes, ct);
+            }
+        }
+    }
+
+    private async Task TrySendReceiptAsync(Guid conversationId, Guid senderUserId, Guid messageId, CancellationToken ct)
+    {
+        try
+        {
+            var conversation = await _api.GetConversationAsync(conversationId, ct);
+            var receipt = new ChatMessage(Guid.CreateVersion7(), ChatMessage.ReceiptType, conversationId, string.Empty, DateTimeOffset.UtcNow, messageId);
+            await SendToAsync(conversation, receipt, new HashSet<Guid> { senderUserId }, ct);
+        }
+        catch (Exception ex) when (ex is VeilApiException or CryptoException or HttpRequestException)
+        {
+            Warn($"Delivery receipt for {messageId:N} could not be sent: {ex.Message}");
+        }
+    }
+
+    private async Task<List<OutgoingEnvelope>> EncryptForAsync(ConversationSummary conversation, byte[] plaintext, IReadOnlySet<Guid> targetUserIds, CancellationToken ct)
     {
         var envelopes = new List<OutgoingEnvelope>();
-        foreach (var member in conversation.Members)
+        foreach (var member in conversation.Members.Where(m => targetUserIds.Contains(m.UserId)))
         {
             Dictionary<Guid, PreKeyBundleDto>? bundles = null;
             foreach (var deviceId in member.DeviceIds)
@@ -315,6 +416,43 @@ public sealed class VeilMessenger : IDisposable
             ?? throw new MalformedMessageException("Empty chat message.");
         CryptoBytes.Zero(plaintext);
         return (message, usedPreKey);
+    }
+
+    /// <returns><c>false</c> when the message was already in history (duplicate delivery).</returns>
+    private bool AppendHistory(StoredMessage message)
+    {
+        var key = message.ConversationId.ToString("N");
+        if (!_state.History.TryGetValue(key, out var list))
+        {
+            list = [];
+            _state.History[key] = list;
+        }
+
+        if (list.Any(m => m.Id == message.Id))
+        {
+            return false;
+        }
+
+        list.Add(message);
+        if (list.Count > MaxHistoryPerConversation)
+        {
+            list.RemoveRange(0, list.Count - MaxHistoryPerConversation);
+        }
+
+        return true;
+    }
+
+    private void ApplyReceipt(Guid conversationId, Guid messageId)
+    {
+        var message = History(conversationId).FirstOrDefault(m => m.Id == messageId && m.Outgoing);
+        if (message is null)
+        {
+            return;
+        }
+
+        message.DeliveredDevices++;
+        message.Status = MessageStatus.Delivered;
+        MessageUpdated?.Invoke(message);
     }
 
     private void CheckPinnedIdentity(Guid userId, Guid deviceId, IdentityPublicKeys identity)

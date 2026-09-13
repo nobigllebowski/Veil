@@ -32,12 +32,43 @@ public sealed class ClientState
     /// <summary>Trust-on-first-use pins: identity fingerprint (hex) per remote device.</summary>
     public Dictionary<string, string> PinnedIdentities { get; set; } = new(StringComparer.Ordinal);
 
+    /// <summary>Decrypted conversation history keyed by conversation id. The server never keeps delivered ciphertext, so this is the only copy.</summary>
+    public Dictionary<string, List<StoredMessage>> History { get; set; } = new(StringComparer.Ordinal);
+
+    /// <summary>When the user last opened each conversation; drives unread counters.</summary>
+    public Dictionary<string, DateTimeOffset> LastRead { get; set; } = new(StringComparer.Ordinal);
+
     public static string PeerKey(Guid userId, Guid deviceId) => $"{userId:N}:{deviceId:N}";
 
     public byte[] Serialize() => JsonSerializer.SerializeToUtf8Bytes(this, Json);
 
     public static ClientState Deserialize(ReadOnlySpan<byte> json) =>
         JsonSerializer.Deserialize<ClientState>(json, Json) ?? throw new InvalidOperationException("Client state is empty.");
+}
+
+public enum MessageStatus
+{
+    /// <summary>Accepted by the server, not yet confirmed by any recipient device.</summary>
+    Sent = 1,
+
+    /// <summary>At least one recipient device decrypted it and sent a receipt.</summary>
+    Delivered = 2,
+
+    /// <summary>Received from a peer.</summary>
+    Received = 3,
+}
+
+/// <summary>One decrypted message in local history.</summary>
+public sealed class StoredMessage
+{
+    public Guid Id { get; set; }
+    public Guid ConversationId { get; set; }
+    public Guid SenderUserId { get; set; }
+    public string Body { get; set; } = string.Empty;
+    public DateTimeOffset SentAt { get; set; }
+    public bool Outgoing { get; set; }
+    public MessageStatus Status { get; set; }
+    public int DeliveredDevices { get; set; }
 }
 
 /// <summary>Persistence port for <see cref="ClientState"/>. Implementations must encrypt at rest.</summary>

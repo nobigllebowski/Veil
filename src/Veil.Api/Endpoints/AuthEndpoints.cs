@@ -93,6 +93,11 @@ internal static class UserEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .WithSummary("Exact-match user lookup.");
 
+        group.MapGet("/presence", async (Guid[] userIds, ISender sender, CancellationToken ct) =>
+                (await sender.Send(new GetPresenceQuery(userIds), ct)).ToOk())
+            .Produces<PresenceResponse>()
+            .WithSummary("Which of the given users currently have a connected device (?userIds=a&userIds=b).");
+
         group.MapGet("/{userId:guid}/prekeys", async (Guid userId, ISender sender, CancellationToken ct) =>
                 (await sender.Send(new GetPreKeyBundlesQuery(userId), ct)).ToOk())
             .RequireAuthorization(AuthPolicies.DeviceBound)

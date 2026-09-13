@@ -1,0 +1,94 @@
+@page "/login"
+@inject AppSession Session
+@inject NavigationManager Nav
+
+<PageTitle>Sign in · Veil</PageTitle>
+
+<div class="auth-screen">
+    <div class="auth-card">
+        <div class="brand">
+            <span class="brand-mark">V</span>
+            <h1>Veil</h1>
+            <p class="muted">End-to-end encrypted messenger. Your keys never leave this browser.</p>
+        </div>
+
+        <EditForm Model="this" OnValidSubmit="Submit">
+            <label class="field">
+                <span>Username</span>
+                <input @bind="_username" autocomplete="username" required maxlength="32" />
+            </label>
+            <label class="field">
+                <span>Password</span>
+                <input type="password" @bind="_password" autocomplete="current-password" required />
+            </label>
+            @if (_needTotp)
+            {
+                <label class="field">
+                    <span>Two-factor code</span>
+                    <input @bind="_totp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" autofocus />
+                </label>
+            }
+            @if (_error is not null)
+            {
+                <p class="form-error">@_error</p>
+            }
+            <button class="btn btn-block" type="submit" disabled="@_busy">@(_busy ? _status : "Sign in")</button>
+        </EditForm>
+
+        <p class="auth-switch">New here? <a href="/register">Create an account</a></p>
+        @if (_hasLocal)
+        {
+            <p class="auth-switch"><a href="/unlock">Unlock an existing session on this device</a></p>
+        }
+    </div>
+</div>
+
+@code {
+    private string _username = string.Empty;
+    private string _password = string.Empty;
+    private string _totp = string.Empty;
+    private bool _needTotp;
+    private bool _busy;
+    private bool _hasLocal;
+    private string _status = "Signing in…";
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Session.Phase == SessionPhase.Ready)
+        {
+            Nav.NavigateTo("/");
+            return;
+        }
+
+        _hasLocal = (await Session.KnownAccountsAsync()).Count > 0;
+    }
+
+    private async Task Submit()
+    {
+        _error = null;
+        _busy = true;
+        _status = "Signing in…";
+        try
+        {
+            await Session.LoginAsync(_username.Trim(), _password, _needTotp ? _totp.Trim() : null);
+            Nav.NavigateTo("/");
+        }
+        catch (VeilApiException ex) when (ex.Code == "auth.totp_required")
+        {
+            _needTotp = true;
+        }
+        catch (VeilApiException ex)
+        {
+            _error = ex.Message;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException)
+        {
+            _error = "Cannot reach the server: " + ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

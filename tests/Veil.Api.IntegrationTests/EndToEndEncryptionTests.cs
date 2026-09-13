@@ -17,13 +17,14 @@ public class EndToEndEncryptionTests(VeilApiFactory factory)
         using var bob = await TestPersona.CreateAsync(factory, "bob");
         var conversation = await alice.Api.CreateDirectConversationAsync(bob.UserId);
 
-        var receipt = await alice.Messenger.SendTextAsync(conversation.Id, "hello bob 👋");
-        receipt.Stored.ShouldBe(1);
+        var sent = await alice.Messenger.SendTextAsync(conversation.Id, "hello bob 👋");
+        sent.Status.ShouldBe(MessageStatus.Sent);
+        alice.Messenger.History(conversation.Id).ShouldHaveSingleItem().Outgoing.ShouldBeTrue();
 
         // What the server holds is an opaque pre-key envelope, not the text.
         await using (var db = await factory.GetService<IDbContextFactory<VeilDbContext>>().CreateDbContextAsync())
         {
-            var stored = await db.MessageEnvelopes.AsNoTracking().SingleAsync(e => e.Id == receipt.EnvelopeIds[0]);
+            var stored = await db.MessageEnvelopes.AsNoTracking().SingleAsync(e => e.RecipientDeviceId == bob.DeviceId);
             System.Text.Encoding.UTF8.GetString(stored.Payload).ShouldNotContain("hello bob");
             Envelope.Decode(stored.Payload).Type.ShouldBe(EnvelopeType.PreKeyMessage);
             stored.RecipientDeviceId.ShouldBe(bob.DeviceId);
@@ -32,23 +33,28 @@ public class EndToEndEncryptionTests(VeilApiFactory factory)
         var received = await bob.Messenger.PullAsync();
         received.ShouldHaveSingleItem().Message.Body.ShouldBe("hello bob 👋");
         received[0].SenderUserId.ShouldBe(alice.UserId);
+        bob.Messenger.History(conversation.Id).ShouldHaveSingleItem().Status.ShouldBe(MessageStatus.Received);
+        bob.Messenger.UnreadCount(conversation.Id).ShouldBe(1);
 
-        // Acknowledged ciphertext is gone from the server.
+        // Acknowledged text ciphertext is gone from the server; Bob's encrypted delivery receipt is waiting for Alice.
         (await bob.Api.FetchPendingAsync()).ShouldBeEmpty();
+        (await alice.Messenger.PullAsync()).ShouldBeEmpty();
+        alice.Messenger.History(conversation.Id).Single().Status.ShouldBe(MessageStatus.Delivered);
 
         await bob.Messenger.SendTextAsync(conversation.Id, "hi alice");
         var reply = await alice.Messenger.PullAsync();
         reply.ShouldHaveSingleItem().Message.Body.ShouldBe("hi alice");
 
         // After the first round-trip the handshake header is dropped and the ratchet has advanced.
-        var followUp = await alice.Messenger.SendTextAsync(conversation.Id, "second message");
+        await alice.Messenger.SendTextAsync(conversation.Id, "second message");
         await using (var db = await factory.GetService<IDbContextFactory<VeilDbContext>>().CreateDbContextAsync())
         {
-            var stored = await db.MessageEnvelopes.AsNoTracking().SingleAsync(e => e.Id == followUp.EnvelopeIds[0]);
+            var stored = await db.MessageEnvelopes.AsNoTracking().Where(e => e.RecipientDeviceId == bob.DeviceId).OrderBy(e => e.Id).LastAsync();
             Envelope.Decode(stored.Payload).Type.ShouldBe(EnvelopeType.Message);
         }
 
         (await bob.Messenger.PullAsync()).ShouldHaveSingleItem().Message.Body.ShouldBe("second message");
+        bob.Messenger.History(conversation.Id).Count.ShouldBe(3);
         alice.Messenger.SafetyNumberWith(bob.Username, bob.Messenger.Identity!).ShouldBe(bob.Messenger.SafetyNumberWith(alice.Username, alice.Messenger.Identity!));
     }
 
@@ -64,8 +70,7 @@ public class EndToEndEncryptionTests(VeilApiFactory factory)
 
         // Bob adds a laptop; Alice's next send must reach both devices without any manual refresh.
         using var bobLaptop = await bobPhone.AddDeviceAsync(factory, "laptop");
-        var receipt = await alice.Messenger.SendTextAsync(conversation.Id, "two devices");
-        receipt.Stored.ShouldBe(2);
+        await alice.Messenger.SendTextAsync(conversation.Id, "two devices");
 
         (await bobPhone.Messenger.PullAsync()).ShouldHaveSingleItem().Message.Body.ShouldBe("two devices");
         (await bobLaptop.Messenger.PullAsync()).ShouldHaveSingleItem().Message.Body.ShouldBe("two devices");
@@ -80,7 +85,8 @@ public class EndToEndEncryptionTests(VeilApiFactory factory)
 
         // Revoking the laptop shrinks the required set again and the SDK heals its session table.
         await bobPhone.Api.RevokeDeviceAsync(bobLaptop.DeviceId);
-        (await alice.Messenger.SendTextAsync(conversation.Id, "back to one")).Stored.ShouldBe(1);
+        await alice.Messenger.SendTextAsync(conversation.Id, "back to one");
+        (await bobPhone.Messenger.PullAsync()).ShouldHaveSingleItem().Message.Body.ShouldBe("back to one");
         var revoked = await Should.ThrowAsync<VeilApiException>(() => bobLaptop.Api.FetchPendingAsync());
         revoked.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
@@ -94,8 +100,7 @@ public class EndToEndEncryptionTests(VeilApiFactory factory)
         var group = await alice.Api.CreateGroupConversationAsync("Project Veil", [bob.UserId, carol.UserId]);
         group.Members.Count.ShouldBe(3);
 
-        var receipt = await alice.Messenger.SendTextAsync(group.Id, "welcome all");
-        receipt.Stored.ShouldBe(2);
+        await alice.Messenger.SendTextAsync(group.Id, "welcome all");
 
         (await bob.Messenger.PullAsync()).ShouldHaveSingleItem().Message.Body.ShouldBe("welcome all");
         (await carol.Messenger.PullAsync()).ShouldHaveSingleItem().Message.Body.ShouldBe("welcome all");
@@ -178,10 +183,9 @@ public class EndToEndEncryptionTests(VeilApiFactory factory)
         realtime.EnvelopeAvailable += n => announced.TrySetResult(n);
         await realtime.ConnectAsync();
 
-        var receipt = await alice.Messenger.SendTextAsync(conversation.Id, "ping");
+        await alice.Messenger.SendTextAsync(conversation.Id, "ping");
 
         var notification = await announced.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        notification.EnvelopeId.ShouldBe(receipt.EnvelopeIds[0]);
         notification.ConversationId.ShouldBe(conversation.Id);
         notification.SenderUserId.ShouldBe(alice.UserId);
 

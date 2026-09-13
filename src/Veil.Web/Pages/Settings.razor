@@ -1,0 +1,224 @@
+@page "/settings"
+@implements IDisposable
+@inject AppSession Session
+@inject NavigationManager Nav
+
+<PageTitle>Settings · Veil</PageTitle>
+
+@if (Session.Phase != SessionPhase.Ready)
+{
+    <div class="auth-screen"><div class="auth-card"><p class="muted">Redirecting…</p></div></div>
+}
+else
+{
+    <div class="settings">
+        <header class="settings-header">
+            <a class="back" href="/">‹ Back to chats</a>
+            <h1>Settings</h1>
+        </header>
+
+        <section class="card">
+            <h2>Profile</h2>
+            <div class="profile-row">
+                <Avatar Id="Session.UserId" Name="@(Session.Profile?.DisplayName ?? "?")" Size="lg" />
+                <div>
+                    <div class="me-name">@Session.Profile?.DisplayName</div>
+                    <div class="muted">@@@Session.Username · joined @Session.Profile?.CreatedAt.ToLocalTime().ToString("d MMMM yyyy")</div>
+                </div>
+            </div>
+            <div class="inline-form">
+                <input @bind="_displayName" maxlength="64" placeholder="Display name" />
+                <button class="btn" @onclick="SaveProfile" disabled="@_busy">Save</button>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Two-factor authentication</h2>
+            @if (Session.Profile?.TotpEnabled == true)
+            {
+                <p>Enabled. Every sign-in requires a code from your authenticator app.</p>
+                <div class="inline-form">
+                    <input type="password" @bind="_password" placeholder="Password" autocomplete="current-password" />
+                    <input @bind="_code" placeholder="Current code" maxlength="6" inputmode="numeric" />
+                    <button class="btn btn-danger" @onclick="DisableTotp" disabled="@_busy">Disable</button>
+                </div>
+            }
+            else if (_enrollment is null)
+            {
+                <p class="muted">Protect the account with a time-based one-time code (Google Authenticator, Aegis, 1Password…).</p>
+                <button class="btn" @onclick="StartTotp" disabled="@_busy">Enable 2FA</button>
+            }
+            else
+            {
+                <p>Scan the code with your authenticator app, then enter the 6-digit code it shows.</p>
+                <div class="qr-row">
+                    <img class="qr" src="@_qrDataUri" alt="TOTP QR code" width="180" height="180" />
+                    <div>
+                        <div class="muted">Manual entry</div>
+                        <code class="secret">@_enrollment.Secret</code>
+                        <div class="inline-form" style="margin-top:12px">
+                            <input @bind="_code" placeholder="123456" maxlength="6" inputmode="numeric" />
+                            <button class="btn" @onclick="ConfirmTotp" disabled="@_busy">Confirm</button>
+                        </div>
+                    </div>
+                </div>
+            }
+        </section>
+
+        <section class="card">
+            <h2>Devices</h2>
+            <p class="muted">Each device has its own identity key and its own encrypted sessions. Revoke anything you do not recognise.</p>
+            <ul class="device-list">
+                @foreach (var d in _devices)
+                {
+                    <li>
+                        <div>
+                            <div class="member-name">@d.Name @(d.IsCurrent ? "· this browser" : "")</div>
+                            <div class="muted">last active @d.LastActiveAt.ToLocalTime().ToString("g") · @d.OneTimePreKeysRemaining one-time pre-keys</div>
+                        </div>
+                        @if (!d.IsCurrent)
+                        {
+                            <button class="btn btn-ghost" @onclick="() => Revoke(d.Id)" disabled="@_busy">Revoke</button>
+                        }
+                    </li>
+                }
+            </ul>
+            @if (Session.Messenger?.Identity is { } identity)
+            {
+                <div class="muted">Identity fingerprint of this device: <code>@AppSession.Fingerprint(identity)</code></div>
+            }
+        </section>
+
+        <section class="card danger">
+            <h2>Session</h2>
+            <div class="button-row">
+                <button class="btn btn-ghost" @onclick="() => Logout(false)" disabled="@_busy">Sign out (keep encrypted data on this device)</button>
+                <button class="btn btn-danger" @onclick="() => Logout(true)" disabled="@_busy">Sign out and wipe this device</button>
+                <button class="btn btn-danger" @onclick="LogoutEverywhere" disabled="@_busy">Sign out everywhere</button>
+            </div>
+            <p class="muted">Wiping deletes the identity keys and history stored in this browser; other devices are unaffected.</p>
+        </section>
+
+        @if (_error is not null)
+        {
+            <p class="form-error">@_error</p>
+        }
+    </div>
+}
+
+@code {
+    private IReadOnlyList<DeviceSummary> _devices = [];
+    private TotpEnrollment? _enrollment;
+    private string _qrDataUri = string.Empty;
+    private string _displayName = string.Empty;
+    private string _password = string.Empty;
+    private string _code = string.Empty;
+    private bool _busy;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Session.Changed += OnChanged;
+        if (Session.Phase == SessionPhase.SignedOut)
+        {
+            Nav.NavigateTo("/login");
+            return;
+        }
+
+        if (Session.Phase == SessionPhase.Locked)
+        {
+            Nav.NavigateTo("/unlock");
+            return;
+        }
+
+        _displayName = Session.Profile?.DisplayName ?? string.Empty;
+        await LoadDevicesAsync();
+    }
+
+    private async Task LoadDevicesAsync()
+    {
+        try
+        {
+            _devices = await Session.Api!.ListDevicesAsync();
+        }
+        catch (VeilApiException ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task SaveProfile() => await Run(async () =>
+    {
+        await Session.Api!.UpdateProfileAsync(_displayName.Trim());
+        await Session.RefreshConversationsAsync();
+        Session.AddToast("Profile saved.", isError: false);
+    });
+
+    private async Task StartTotp() => await Run(async () =>
+    {
+        _enrollment = await Session.Api!.BeginTotpEnrollmentAsync();
+        using var generator = new QRCoder.QRCodeGenerator();
+        using var data = generator.CreateQrCode(_enrollment.OtpAuthUri, QRCoder.QRCodeGenerator.ECCLevel.Q);
+        using var png = new QRCoder.PngByteQRCode(data);
+        _qrDataUri = "data:image/png;base64," + Convert.ToBase64String(png.GetGraphic(6));
+    });
+
+    private async Task ConfirmTotp() => await Run(async () =>
+    {
+        await Session.Api!.ConfirmTotpAsync(_code.Trim());
+        _enrollment = null;
+        _code = string.Empty;
+        Session.AddToast("Two-factor authentication enabled.", isError: false);
+        await Session.RefreshConversationsAsync();
+        Nav.NavigateTo("/settings", forceLoad: false);
+    });
+
+    private async Task DisableTotp() => await Run(async () =>
+    {
+        await Session.Api!.DisableTotpAsync(_password, _code.Trim());
+        _password = string.Empty;
+        _code = string.Empty;
+        Session.AddToast("Two-factor authentication disabled.", isError: false);
+    });
+
+    private async Task Revoke(Guid deviceId) => await Run(async () =>
+    {
+        await Session.Api!.RevokeDeviceAsync(deviceId);
+        await LoadDevicesAsync();
+    });
+
+    private async Task Logout(bool wipe) => await Run(async () =>
+    {
+        await Session.LogoutAsync(wipe);
+        Nav.NavigateTo(wipe ? "/login" : "/unlock");
+    });
+
+    private async Task LogoutEverywhere() => await Run(async () =>
+    {
+        await Session.Api!.LogoutEverywhereAsync();
+        await Session.LogoutAsync(wipeLocalData: false);
+        Nav.NavigateTo("/unlock");
+    });
+
+    private async Task Run(Func<Task> action)
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex) when (ex is VeilApiException or HttpRequestException or InvalidOperationException)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Session.Changed -= OnChanged;
+}

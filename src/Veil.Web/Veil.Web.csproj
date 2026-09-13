@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <PropertyGroup>
+    <Description>Veil web client: Blazor WebAssembly UI that runs the end-to-end encryption in the browser.</Description>
+    <RootNamespace>Veil.Web</RootNamespace>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <BlazorEnableTimeZoneSupport>true</BlazorEnableTimeZoneSupport>
+    <WasmEnableSIMD>true</WasmEnableSIMD>
+    <NoWarn>$(NoWarn);CA1515</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" PrivateAssets="all" />
+    <PackageReference Include="QRCoder" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Veil.Client.Sdk/Veil.Client.Sdk.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- BouncyCastle resolves algorithms reflectively in places; keep it whole when the linker runs. -->
+    <TrimmerRootAssembly Include="BouncyCastle.Cryptography" />
+  </ItemGroup>
+
+</Project>

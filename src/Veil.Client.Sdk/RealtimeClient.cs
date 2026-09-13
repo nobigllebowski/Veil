@@ -12,10 +12,11 @@ public sealed class RealtimeClient : IAsyncDisposable
     private Task? _heartbeatLoop;
     private readonly CancellationTokenSource _cts = new();
 
-    public RealtimeClient(Uri serverUrl, Func<Task<string?>> accessTokenProvider, HttpMessageHandler? handler = null)
+    /// <param name="useMessagePack">Binary protocol for native clients; browsers use JSON (MessagePack needs runtime code generation).</param>
+    public RealtimeClient(Uri serverUrl, Func<Task<string?>> accessTokenProvider, HttpMessageHandler? handler = null, bool useMessagePack = true)
     {
         ArgumentNullException.ThrowIfNull(serverUrl);
-        _connection = new HubConnectionBuilder()
+        var builder = new HubConnectionBuilder()
             .WithUrl(new Uri(serverUrl, "hubs/chat"), options =>
             {
                 options.AccessTokenProvider = accessTokenProvider;
@@ -24,22 +25,31 @@ public sealed class RealtimeClient : IAsyncDisposable
                     options.HttpMessageHandlerFactory = _ => handler;
                 }
             })
-            .AddMessagePackProtocol()
-            .WithAutomaticReconnect()
-            .Build();
+            .WithAutomaticReconnect();
+
+        if (useMessagePack)
+        {
+            builder.AddMessagePackProtocol();
+        }
+
+        _connection = builder.Build();
 
         _connection.On<EnvelopeAvailableNotification>("EnvelopeAvailable", n => EnvelopeAvailable?.Invoke(n));
         _connection.On<ConversationChangedNotification>("ConversationChanged", n => ConversationChanged?.Invoke(n));
         _connection.On("DeviceListChanged", () => DeviceListChanged?.Invoke());
         _connection.On<TypingNotification>("Typing", n => Typing?.Invoke(n));
+        _connection.On<PresenceNotification>("PresenceChanged", n => PresenceChanged?.Invoke(n));
         _connection.Reconnected += _ => { Reconnected?.Invoke(); return Task.CompletedTask; };
+        _connection.Closed += _ => { Closed?.Invoke(); return Task.CompletedTask; };
     }
 
     public event Action<EnvelopeAvailableNotification>? EnvelopeAvailable;
     public event Action<ConversationChangedNotification>? ConversationChanged;
     public event Action? DeviceListChanged;
     public event Action<TypingNotification>? Typing;
+    public event Action<PresenceNotification>? PresenceChanged;
     public event Action? Reconnected;
+    public event Action? Closed;
 
     public HubConnectionState State => _connection.State;
 

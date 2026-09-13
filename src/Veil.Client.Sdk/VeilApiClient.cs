@@ -130,6 +130,9 @@ public sealed class VeilApiClient(HttpClient http) : IDisposable
         }
     }
 
+    public Task<PresenceResponse> GetPresenceAsync(IEnumerable<Guid> userIds, CancellationToken ct = default) =>
+        GetAsync<PresenceResponse>("api/v1/users/presence?" + string.Join('&', userIds.Select(id => "userIds=" + id)), ct);
+
     public Task<IReadOnlyList<PreKeyBundleDto>> GetPreKeyBundlesAsync(Guid userId, CancellationToken ct = default) =>
         GetAsync<IReadOnlyList<PreKeyBundleDto>>($"api/v1/users/{userId}/prekeys", ct);
 

@@ -1,0 +1,19 @@
+<div class="modal-backdrop" @onclick="Close">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="@Title" @onclick:stopPropagation="true">
+        <div class="modal-header">
+            <h2>@Title</h2>
+            <button class="icon-btn" @onclick="Close" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body">
+            @ChildContent
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private Task Close() => OnClose.InvokeAsync();
+}

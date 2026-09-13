@@ -1,0 +1,84 @@
+@inject AppSession Session
+
+<Modal Title="@Session.TitleOf(Conversation)" OnClose="OnClose">
+    <ul class="member-list">
+        @foreach (var member in Conversation.Members.OrderBy(m => m.UserId == Session.UserId ? 0 : 1).ThenBy(m => m.DisplayName))
+        {
+            <li>
+                <Avatar Id="member.UserId" Name="@member.DisplayName" Online="Session.IsOnline(member.UserId)" />
+                <div class="member-text">
+                    <div class="member-name">@member.DisplayName @(member.UserId == Session.UserId ? "(you)" : "")</div>
+                    <div class="member-meta">@@@member.Username · @member.Role · @member.DeviceIds.Count device(s)</div>
+                </div>
+            </li>
+        }
+    </ul>
+
+    @if (Conversation.Type == "Group")
+    {
+        <div class="inline-form">
+            <input @bind="_username" @bind:event="oninput" placeholder="add by username" maxlength="32" />
+            <button class="btn" @onclick="Add" disabled="@_busy">Add</button>
+        </div>
+        @if (_error is not null)
+        {
+            <p class="form-error">@_error</p>
+        }
+        <div class="modal-actions">
+            <button class="btn btn-danger" @onclick="Leave" disabled="@_busy">Leave group</button>
+        </div>
+    }
+</Modal>
+
+@code {
+    [Parameter, EditorRequired] public ConversationSummary Conversation { get; set; } = null!;
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback OnLeft { get; set; }
+
+    private string _username = string.Empty;
+    private string? _error;
+    private bool _busy;
+
+    private async Task Add()
+    {
+        if (string.IsNullOrWhiteSpace(_username))
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await Session.AddMemberAsync(Conversation.Id, _username);
+            Conversation = Session.FindConversation(Conversation.Id) ?? Conversation;
+            _username = string.Empty;
+        }
+        catch (Exception ex) when (ex is VeilApiException or InvalidOperationException)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task Leave()
+    {
+        _busy = true;
+        try
+        {
+            await Session.LeaveAsync(Conversation.Id);
+            await OnLeft.InvokeAsync();
+        }
+        catch (VeilApiException ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

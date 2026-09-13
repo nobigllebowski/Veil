@@ -1,0 +1,31 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject AppSession Session
+
+<div class="app-shell">
+    @if (Session.Phase == SessionPhase.Booting)
+    {
+        <div class="boot">
+            <div class="boot-logo">Veil</div>
+            <div class="boot-text">Unlocking…</div>
+            <div class="boot-bar"><div class="boot-bar-fill"></div></div>
+        </div>
+    }
+    else
+    {
+        @Body
+    }
+    <Toasts />
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        Session.Changed += OnChanged;
+        await Session.InitializeAsync();
+    }
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Session.Changed -= OnChanged;
+}

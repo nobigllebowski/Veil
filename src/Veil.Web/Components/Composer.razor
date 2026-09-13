@@ -1,0 +1,51 @@
+@inject BrowserStorage Browser
+
+<div class="composer">
+    <textarea @ref="_input"
+              @bind="_text" @bind:event="oninput" @bind:after="NotifyTyping"
+              @onkeydown="OnKeyDown"
+              placeholder="Write a message…"
+              rows="1"
+              disabled="@Busy"></textarea>
+    <button class="send" @onclick="Send" disabled="@(Busy || string.IsNullOrWhiteSpace(_text))" title="Send (Enter)">➤</button>
+</div>
+
+@code {
+    [Parameter] public EventCallback<string> OnSend { get; set; }
+    [Parameter] public EventCallback OnTyping { get; set; }
+    [Parameter] public bool Busy { get; set; }
+
+    private ElementReference _input;
+    private string _text = string.Empty;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await Browser.FocusAsync(_input);
+        }
+    }
+
+    private Task NotifyTyping() => OnTyping.InvokeAsync();
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await Send();
+        }
+    }
+
+    private async Task Send()
+    {
+        var text = _text.Trim();
+        if (text.Length == 0)
+        {
+            return;
+        }
+
+        _text = string.Empty;
+        await OnSend.InvokeAsync(text);
+        await Browser.FocusAsync(_input);
+    }
+}

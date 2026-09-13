@@ -1,0 +1,103 @@
+@implements IDisposable
+@inject AppSession Session
+@inject NavigationManager Nav
+
+<aside class="sidebar">
+    <header class="sidebar-header">
+        <a class="me" href="/settings" title="Settings">
+            <Avatar Id="Session.UserId" Name="@(Session.Profile?.DisplayName ?? "?")" Online="true" />
+            <div class="me-text">
+                <div class="me-name">@Session.Profile?.DisplayName</div>
+                <div class="me-handle">@@@Session.Username @(Session.RealtimeConnected ? "" : "· offline")</div>
+            </div>
+        </a>
+        <button class="icon-btn" title="New chat" @onclick="() => _showNew = true">＋</button>
+    </header>
+
+    <div class="search">
+        <input @bind="_filter" @bind:event="oninput" placeholder="Search conversations" />
+    </div>
+
+    <nav class="conversations">
+        @if (Session.Conversations.Count == 0)
+        {
+            <div class="empty-hint">No conversations yet. Start one with <b>＋</b>.</div>
+        }
+        @foreach (var c in Filtered())
+        {
+            var last = Session.LastMessage(c.Id);
+            var unread = Session.Unread(c.Id);
+            var peer = Session.PeerOf(c);
+            <a class="conversation @(c.Id == SelectedId ? "selected" : "")" href="/chat/@c.Id">
+                <Avatar Id="peer?.UserId ?? c.Id" Name="@Session.TitleOf(c)" Online="peer is not null && Session.IsOnline(peer.UserId)" />
+                <div class="conversation-text">
+                    <div class="conversation-top">
+                        <span class="conversation-title">@Session.TitleOf(c)</span>
+                        @if (last is not null)
+                        {
+                            <span class="conversation-time">@Format(last.SentAt)</span>
+                        }
+                    </div>
+                    <div class="conversation-bottom">
+                        <span class="conversation-preview">
+                            @if (last is null)
+                            {
+                                <i>@(c.Type == "Group" ? $"{c.Members.Count} members" : "Say hello 👋")</i>
+                            }
+                            else
+                            {
+                                @(last.Outgoing ? "You: " : c.Type == "Group" ? Session.DisplayNameOf(last.SenderUserId) + ": " : "")@last.Body
+                            }
+                        </span>
+                        @if (unread > 0 && c.Id != SelectedId)
+                        {
+                            <span class="badge">@unread</span>
+                        }
+                    </div>
+                </div>
+            </a>
+        }
+    </nav>
+
+    <footer class="sidebar-footer">
+        <span class="lock">🔒 End-to-end encrypted · PQXDH + Double Ratchet</span>
+    </footer>
+</aside>
+
+@if (_showNew)
+{
+    <NewChatDialog OnClose="() => _showNew = false" OnCreated="Created" />
+}
+
+@code {
+    [Parameter] public Guid? SelectedId { get; set; }
+
+    private bool _showNew;
+    private string _filter = string.Empty;
+
+    // The only parameter is a primitive, so the parent's re-render would skip this component:
+    // subscribe to session changes directly so new conversations, unread counts and presence show up live.
+    protected override void OnInitialized() => Session.Changed += OnChanged;
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Session.Changed -= OnChanged;
+
+    private IEnumerable<ConversationSummary> Filtered() =>
+        string.IsNullOrWhiteSpace(_filter)
+            ? Session.Conversations
+            : Session.Conversations.Where(c => Session.TitleOf(c).Contains(_filter, StringComparison.OrdinalIgnoreCase)
+                                               || c.Members.Any(m => m.Username.Contains(_filter, StringComparison.OrdinalIgnoreCase)));
+
+    private void Created(ConversationSummary conversation)
+    {
+        _showNew = false;
+        Nav.NavigateTo($"/chat/{conversation.Id}");
+    }
+
+    private static string Format(DateTimeOffset at)
+    {
+        var local = at.ToLocalTime();
+        return local.Date == DateTimeOffset.Now.Date ? local.ToString("HH:mm") : local.ToString("dd MMM");
+    }
+}

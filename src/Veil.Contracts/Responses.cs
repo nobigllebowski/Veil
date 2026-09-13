@@ -39,6 +39,8 @@ public sealed record DeviceSetMismatch(Guid UserId, IReadOnlyList<Guid> MissingD
 
 public sealed record CountResponse(int Count);
 
+public sealed record PresenceResponse(IReadOnlyList<Guid> OnlineUserIds);
+
 /// <summary>RFC 9457 problem details as emitted by the API, including Veil's <c>code</c> extension.</summary>
 public sealed record ApiProblem(
     string? Type,

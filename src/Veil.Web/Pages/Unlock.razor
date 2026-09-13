@@ -1,0 +1,94 @@
+@page "/unlock"
+@inject AppSession Session
+@inject NavigationManager Nav
+
+<PageTitle>Unlock · Veil</PageTitle>
+
+<div class="auth-screen">
+    <div class="auth-card">
+        <div class="brand">
+            <span class="brand-mark">V</span>
+            <h1>Welcome back</h1>
+            <p class="muted">Your keys and history are stored encrypted in this browser. Enter your password to unlock them.</p>
+        </div>
+
+        <EditForm Model="this" OnValidSubmit="Submit">
+            <label class="field">
+                <span>Account</span>
+                @if (_accounts.Count > 1)
+                {
+                    <select @bind="_username">
+                        @foreach (var a in _accounts)
+                        {
+                            <option value="@a">@a</option>
+                        }
+                    </select>
+                }
+                else
+                {
+                    <input @bind="_username" readonly />
+                }
+            </label>
+            <label class="field">
+                <span>Password</span>
+                <input type="password" @bind="_password" autocomplete="current-password" required autofocus />
+            </label>
+            @if (_error is not null)
+            {
+                <p class="form-error">@_error</p>
+            }
+            <button class="btn btn-block" type="submit" disabled="@_busy">@(_busy ? "Unlocking…" : "Unlock")</button>
+        </EditForm>
+
+        <p class="auth-switch"><a href="/login">Sign in to a different account</a></p>
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<string> _accounts = [];
+    private string _username = string.Empty;
+    private string _password = string.Empty;
+    private bool _busy;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Session.Phase == SessionPhase.Ready)
+        {
+            Nav.NavigateTo("/");
+            return;
+        }
+
+        _accounts = await Session.KnownAccountsAsync();
+        if (_accounts.Count == 0)
+        {
+            Nav.NavigateTo("/login");
+            return;
+        }
+
+        _username = _accounts[0];
+    }
+
+    private async Task Submit()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            await Session.UnlockAsync(_username, _password);
+            Nav.NavigateTo("/");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            _error = "Wrong password.";
+        }
+        catch (Exception ex) when (ex is VeilApiException or HttpRequestException or InvalidOperationException)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -6,7 +6,9 @@ Veil follows Clean Architecture with vertical feature slices. Dependencies point
 ```
 Veil.Api ──► Veil.Application ──► Veil.Domain ──► Veil.Crypto
    │                │
-   └──► Veil.Infrastructure ──┘        Veil.Client ──► Veil.Client.Sdk ──► Veil.Contracts + Veil.Crypto
+   ├──► Veil.Infrastructure ──┘        Veil.Client (terminal) ──┐
+   │                                                            ├──► Veil.Client.Sdk ──► Veil.Contracts + Veil.Crypto
+   └──► Veil.Web (Blazor WebAssembly, served as static files) ──┘
 ```
 
 | Project | Responsibility | Depends on |
@@ -16,7 +18,10 @@ Veil.Api ──► Veil.Application ──► Veil.Domain ──► Veil.Crypto
 | `Veil.Domain` | Aggregates, value objects, invariants, domain events, `Result`/`Error`. | `Veil.Crypto` (to validate uploaded key bundles) |
 | `Veil.Application` | Commands/queries and their handlers, validators, ports (repositories, security services, real-time), pipeline behaviors. | `Veil.Domain`, `Veil.Contracts`, FluentValidation |
 | `Veil.Infrastructure` | Adapters: EF Core/PostgreSQL, Redis, Argon2id, JWT, TOTP, field encryption, outbox, audit chain, maintenance. | `Veil.Application` |
-| `Veil.Api` | Composition root and HTTP/SignalR surface. | everything above |
+| `Veil.Api` | Composition root, HTTP/SignalR surface and host of the web client's static files. | everything above, `Veil.Web` |
+| `Veil.Client.Sdk` | Typed API client, real-time client, `VeilMessenger` (sessions, history, receipts) and the encrypted state store contract. | `Veil.Contracts`, `Veil.Crypto` |
+| `Veil.Web` | Blazor WebAssembly messenger UI. Pages and components only; all protocol logic is the SDK running in the browser. | `Veil.Client.Sdk` |
+| `Veil.Client` | Terminal client over the same SDK. | `Veil.Client.Sdk` |
 
 ## Request pipeline
 
@@ -95,3 +100,34 @@ them and within seconds elsewhere.
 activity source), metrics (ASP.NET Core, HTTP, runtime) and logs, exported over OTLP when
 `OTEL_EXPORTER_OTLP_ENDPOINT` is set. Serilog writes compact JSON in production; logs never contain payloads,
 passwords, tokens or raw IP addresses. Health: `/alive` (liveness) and `/health` (PostgreSQL + Redis readiness).
+
+## Web client
+
+`Veil.Web` is a Blazor WebAssembly application referenced by `Veil.Api`, which serves it with
+`UseBlazorFrameworkFiles` + static files and a fallback route to `index.html` for every path outside
+`/api`, `/hubs`, `/health`, `/alive`, `/openapi`, `/scalar` and `/.well-known`. One process, one origin: the
+client calls the API with relative URLs, so CORS is not involved (`UseCors` is added only when
+`Cors:AllowedOrigins` names an external client).
+
+- **Crypto in the browser.** The client references `Veil.Client.Sdk` and therefore `Veil.Crypto`; PQXDH, the
+  Double Ratchet, Ed25519 and Argon2id run in WebAssembly. `AesGcm` is not available in the browser runtime,
+  so the AEAD falls back to BouncyCastle's GCM implementation when `AesGcm.IsSupported` is false. The
+  BouncyCastle assembly is rooted for the trimmer.
+- **Local state.** `BrowserStateStore` implements the SDK's `IClientStateStore` over `localStorage`. The state
+  (identity keys, signed/one-time pre-keys, ratchet sessions, pinned identities, decrypted history, refresh
+  token) is serialised and encrypted with AES-256-GCM (AAD `Veil_BrowserState_v1`) under a key derived from
+  the account password with Argon2id (24 MiB, 2 iterations). The key is kept in `sessionStorage` only, so a
+  reload keeps the session while a closed tab returns to the unlock screen. Sign-out can wipe the state.
+- **Session.** `AppSession` is the single scoped state holder: it drives registration/login (device
+  registration or device-bound login + refresh-token rotation), conversation and history state, presence,
+  typing, toasts and browser notifications, and raises `Changed` so pages and components re-render. The
+  SignalR connection uses the JSON protocol in the browser (`RealtimeClient(useMessagePack: false)`) and the
+  access token is passed as a query parameter on hub paths only.
+- **Headers.** `SecurityHeadersMiddleware` distinguishes the UI surface from the API: the UI gets a CSP that
+  allows `'wasm-unsafe-eval'` for the .NET runtime, `'unsafe-inline'` styles (Blazor's error UI), same-origin
+  connections including WebSockets, and no frames, objects or third-party hosts; API responses keep
+  `no-store`.
+- **Tests.** `tests/Veil.Web.E2ETests` starts the built API as a child process on a free port with a fresh
+  `veil_e2e` database and no Redis, then drives two Chromium contexts through Playwright: register, start a
+  chat, exchange messages, observe delivery ticks, compare safety numbers and survive a reload.
+

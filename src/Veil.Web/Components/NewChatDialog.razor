@@ -1,0 +1,92 @@
+@inject AppSession Session
+
+<Modal Title="@(_group ? "New group" : "New chat")" OnClose="OnClose">
+    <div class="segmented">
+        <button class="@(_group ? "" : "active")" @onclick="() => _group = false">Direct</button>
+        <button class="@(_group ? "active" : "")" @onclick="() => _group = true">Group</button>
+    </div>
+
+    @if (_group)
+    {
+        <label class="field">
+            <span>Group title</span>
+            <input @bind="_title" @bind:event="oninput" maxlength="128" placeholder="Project Veil" />
+        </label>
+        <label class="field">
+            <span>Members (usernames, comma or space separated)</span>
+            <textarea @bind="_members" @bind:event="oninput" rows="3" placeholder="alice, bob"></textarea>
+        </label>
+    }
+    else
+    {
+        <label class="field">
+            <span>Username</span>
+            <input @bind="_username" @bind:event="oninput" @onkeydown="OnKey" maxlength="32" placeholder="alice" autofocus />
+        </label>
+    }
+
+    @if (_error is not null)
+    {
+        <p class="form-error">@_error</p>
+    }
+
+    <div class="modal-actions">
+        <button class="btn btn-ghost" @onclick="OnClose">Cancel</button>
+        <button class="btn" @onclick="Submit" disabled="@_busy">@(_busy ? "Working…" : _group ? "Create group" : "Start chat")</button>
+    </div>
+</Modal>
+
+@code {
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback<ConversationSummary> OnCreated { get; set; }
+
+    private bool _group;
+    private bool _busy;
+    private string _username = string.Empty;
+    private string _title = string.Empty;
+    private string _members = string.Empty;
+    private string? _error;
+
+    private Task OnKey(KeyboardEventArgs e) => e.Key == "Enter" ? Submit() : Task.CompletedTask;
+
+    private async Task Submit()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            ConversationSummary created;
+            if (_group)
+            {
+                if (string.IsNullOrWhiteSpace(_title))
+                {
+                    _error = "Give the group a title.";
+                    return;
+                }
+
+                var names = _members.Split([',', ' ', ';', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                created = await Session.CreateGroupAsync(_title.Trim(), names);
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(_username))
+                {
+                    _error = "Enter a username.";
+                    return;
+                }
+
+                created = await Session.StartDirectAsync(_username.Trim().TrimStart('@'));
+            }
+
+            await OnCreated.InvokeAsync(created);
+        }
+        catch (Exception ex) when (ex is VeilApiException or InvalidOperationException)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

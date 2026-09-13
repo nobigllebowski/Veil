@@ -16,11 +16,13 @@ public sealed class InMemoryPresenceService(TimeProvider time) : IPresenceServic
         return Task.FromResult(online);
     }
 
-    public Task ConnectedAsync(Guid userId, string connectionId, CancellationToken cancellationToken)
+    public Task<bool> ConnectedAsync(Guid userId, string connectionId, CancellationToken cancellationToken)
     {
+        var now = time.GetUtcNow();
         var entry = _users.GetOrAdd(userId, _ => new Entry());
-        entry.Add(connectionId, time.GetUtcNow() + Ttl);
-        return Task.CompletedTask;
+        var wasOffline = !entry.IsOnline(now);
+        entry.Add(connectionId, now + Ttl);
+        return Task.FromResult(wasOffline);
     }
 
     public Task HeartbeatAsync(Guid userId, CancellationToken cancellationToken)
@@ -33,14 +35,15 @@ public sealed class InMemoryPresenceService(TimeProvider time) : IPresenceServic
         return Task.CompletedTask;
     }
 
-    public Task DisconnectedAsync(Guid userId, string connectionId, CancellationToken cancellationToken)
+    public Task<bool> DisconnectedAsync(Guid userId, string connectionId, CancellationToken cancellationToken)
     {
         if (_users.TryGetValue(userId, out var entry) && entry.Remove(connectionId))
         {
             _users.TryRemove(userId, out _);
+            return Task.FromResult(true);
         }
 
-        return Task.CompletedTask;
+        return Task.FromResult(false);
     }
 
     private sealed class Entry

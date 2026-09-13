@@ -1,0 +1,14 @@
+<div class="avatar @(Size == "lg" ? "avatar-lg" : "")" style="--hue: @AppSession.Hue(Id)" title="@Name">
+    @AppSession.Initials(Name)
+    @if (Online)
+    {
+        <span class="presence-dot" title="online"></span>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Guid Id { get; set; }
+    [Parameter, EditorRequired] public string Name { get; set; } = string.Empty;
+    [Parameter] public bool Online { get; set; }
+    [Parameter] public string Size { get; set; } = "md";
+}

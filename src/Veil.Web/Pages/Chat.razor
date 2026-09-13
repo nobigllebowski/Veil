@@ -1,0 +1,171 @@
+@page "/"
+@page "/chat/{ConversationId:guid}"
+@implements IDisposable
+@inject AppSession Session
+@inject NavigationManager Nav
+
+<PageTitle>@(_conversation is null ? "Veil" : Session.TitleOf(_conversation) + " · Veil")</PageTitle>
+
+@if (Session.Phase != SessionPhase.Ready)
+{
+    <div class="auth-screen"><div class="auth-card"><p class="muted">Redirecting…</p></div></div>
+}
+else
+{
+    <div class="chat-layout @(_conversation is null ? "" : "has-conversation")">
+        <ConversationList SelectedId="ConversationId" />
+
+        <main class="chat-main">
+            @if (_conversation is null)
+            {
+                <div class="chat-placeholder">
+                    <div class="lock-big">🔒</div>
+                    <h2>Select a conversation</h2>
+                    <p class="muted">or start a new one with the ＋ button. Every message is encrypted on this device with PQXDH + Double Ratchet before it leaves the browser.</p>
+                </div>
+            }
+            else
+            {
+                var peer = Session.PeerOf(_conversation);
+                <header class="chat-header">
+                    <a class="back" href="/" aria-label="Back">‹</a>
+                    <Avatar Id="peer?.UserId ?? _conversation.Id" Name="@Session.TitleOf(_conversation)" Online="peer is not null && Session.IsOnline(peer.UserId)" />
+                    <div class="chat-title" @onclick="() => _showMembers = true">
+                        <div class="chat-name">@Session.TitleOf(_conversation)</div>
+                        <div class="chat-sub">
+                            @if (peer is not null)
+                            {
+                                @(Session.IsOnline(peer.UserId) ? "online" : "@" + peer.Username)
+                            }
+                            else
+                            {
+                                @($"{_conversation.Members.Count} members · {_conversation.Members.Count(m => Session.IsOnline(m.UserId) || m.UserId == Session.UserId)} online")
+                            }
+                        </div>
+                    </div>
+                    <div class="chat-actions">
+                        <button class="icon-btn" title="Verify safety numbers" @onclick="() => _showSafety = true">🛡</button>
+                        <button class="icon-btn" title="Members" @onclick="() => _showMembers = true">👥</button>
+                    </div>
+                </header>
+
+                <MessageThread Messages="Session.Messenger!.History(_conversation.Id)"
+                               IsGroup="@(_conversation.Type == "Group")"
+                               TypingNames="TypingNames()" />
+
+                <Composer OnSend="Send" OnTyping="() => Session.SendTypingAsync(_conversation.Id)" Busy="_sending" />
+            }
+        </main>
+    </div>
+
+    @if (_showSafety && _conversation is not null)
+    {
+        <SafetyDialog Conversation="_conversation" OnClose="() => _showSafety = false" />
+    }
+    @if (_showMembers && _conversation is not null)
+    {
+        <MembersDialog Conversation="_conversation" OnClose="() => _showMembers = false" OnLeft="Left" />
+    }
+}
+
+@code {
+    [Parameter] public Guid? ConversationId { get; set; }
+
+    private ConversationSummary? _conversation;
+    private bool _showSafety;
+    private bool _showMembers;
+    private bool _sending;
+
+    protected override void OnInitialized()
+    {
+        Session.Changed += OnChanged;
+        Session.MessageArrived += OnMessage;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Session.Phase == SessionPhase.SignedOut)
+        {
+            Nav.NavigateTo("/login");
+            return;
+        }
+
+        if (Session.Phase == SessionPhase.Locked)
+        {
+            Nav.NavigateTo("/unlock");
+            return;
+        }
+
+        await ResolveConversationAsync();
+    }
+
+    private async Task ResolveConversationAsync()
+    {
+        _conversation = ConversationId is { } id ? Session.FindConversation(id) : null;
+        if (_conversation is null && ConversationId is not null && Session.Phase == SessionPhase.Ready)
+        {
+            await Session.RefreshConversationsAsync();
+            _conversation = Session.FindConversation(ConversationId.Value);
+        }
+
+        if (_conversation is not null)
+        {
+            await Session.MarkReadAsync(_conversation.Id);
+        }
+    }
+
+    private async Task Send(string text)
+    {
+        if (_conversation is null)
+        {
+            return;
+        }
+
+        _sending = true;
+        try
+        {
+            await Session.SendAsync(_conversation.Id, text);
+        }
+        catch (Exception ex) when (ex is VeilApiException or HttpRequestException or InvalidOperationException or Veil.Crypto.CryptoException)
+        {
+            Session.AddToast("Message not sent: " + ex.Message, isError: true);
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+
+    private IReadOnlyList<string> TypingNames() =>
+        _conversation is null ? [] : Session.TypingIn(_conversation.Id).Where(id => id != Session.UserId).Select(Session.DisplayNameOf).ToList();
+
+    private void Left()
+    {
+        _showMembers = false;
+        Nav.NavigateTo("/");
+    }
+
+    private void OnChanged()
+    {
+        if (ConversationId is { } id)
+        {
+            _conversation = Session.FindConversation(id) ?? _conversation;
+        }
+
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void OnMessage(StoredMessage message)
+    {
+        if (_conversation is not null && message.ConversationId == _conversation.Id && !message.Outgoing)
+        {
+            _ = Session.MarkReadAsync(_conversation.Id);
+        }
+    }
+
+    public void Dispose()
+    {
+        Session.Changed -= OnChanged;
+        Session.MessageArrived -= OnMessage;
+    }
+}

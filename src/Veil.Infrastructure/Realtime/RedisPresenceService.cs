@@ -22,18 +22,20 @@ public sealed class RedisPresenceService(IConnectionMultiplexer redis) : IPresen
         return ids.Where((_, i) => results[i]).ToHashSet();
     }
 
-    public async Task ConnectedAsync(Guid userId, string connectionId, CancellationToken cancellationToken)
+    public async Task<bool> ConnectedAsync(Guid userId, string connectionId, CancellationToken cancellationToken)
     {
         var database = redis.GetDatabase();
         var key = Key(userId);
+        var wasOffline = !await database.KeyExistsAsync(key);
         await database.SetAddAsync(key, connectionId);
         await database.KeyExpireAsync(key, Ttl);
+        return wasOffline;
     }
 
     public Task HeartbeatAsync(Guid userId, CancellationToken cancellationToken) =>
         redis.GetDatabase().KeyExpireAsync(Key(userId), Ttl);
 
-    public async Task DisconnectedAsync(Guid userId, string connectionId, CancellationToken cancellationToken)
+    public async Task<bool> DisconnectedAsync(Guid userId, string connectionId, CancellationToken cancellationToken)
     {
         var database = redis.GetDatabase();
         var key = Key(userId);
@@ -41,7 +43,10 @@ public sealed class RedisPresenceService(IConnectionMultiplexer redis) : IPresen
         if (await database.SetLengthAsync(key) == 0)
         {
             await database.KeyDeleteAsync(key);
+            return true;
         }
+
+        return false;
     }
 
     private static RedisKey Key(Guid userId) => $"presence:user:{userId:N}";
@@ -50,7 +55,11 @@ public sealed class RedisPresenceService(IConnectionMultiplexer redis) : IPresen
 /// <summary>Write side of presence, driven by the real-time hub.</summary>
 public interface IPresenceTracker
 {
-    Task ConnectedAsync(Guid userId, string connectionId, CancellationToken cancellationToken);
+    /// <returns><c>true</c> when this connection took the user from offline to online.</returns>
+    Task<bool> ConnectedAsync(Guid userId, string connectionId, CancellationToken cancellationToken);
+
     Task HeartbeatAsync(Guid userId, CancellationToken cancellationToken);
-    Task DisconnectedAsync(Guid userId, string connectionId, CancellationToken cancellationToken);
+
+    /// <returns><c>true</c> when the user has no connections left and is now offline.</returns>
+    Task<bool> DisconnectedAsync(Guid userId, string connectionId, CancellationToken cancellationToken);
 }

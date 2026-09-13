@@ -10,6 +10,7 @@
     <Project Path="src/Veil.AppHost/Veil.AppHost.csproj" />
     <Project Path="src/Veil.Client.Sdk/Veil.Client.Sdk.csproj" />
     <Project Path="src/Veil.Client/Veil.Client.csproj" />
+    <Project Path="src/Veil.Web/Veil.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Veil.Crypto.Tests/Veil.Crypto.Tests.csproj" />
@@ -18,6 +19,7 @@
     <Project Path="tests/Veil.Infrastructure.Tests/Veil.Infrastructure.Tests.csproj" />
     <Project Path="tests/Veil.Api.IntegrationTests/Veil.Api.IntegrationTests.csproj" />
     <Project Path="tests/Veil.Architecture.Tests/Veil.Architecture.Tests.csproj" />
+    <Project Path="tests/Veil.Web.E2ETests/Veil.Web.E2ETests.csproj" />
   </Folder>
   <Folder Name="/solution-items/">
     <File Path="README.md" />

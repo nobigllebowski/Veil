@@ -1,0 +1,21 @@
+@implements IDisposable
+@inject AppSession Session
+
+@if (Session.Toasts.Count > 0)
+{
+    <div class="toasts" role="status" aria-live="polite">
+        @foreach (var toast in Session.Toasts)
+        {
+            <div class="toast @(toast.IsError ? "toast-error" : "")">
+                <span>@toast.Text</span>
+                <button class="toast-close" @onclick="() => Session.DismissToast(toast.Id)" aria-label="Dismiss">×</button>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    protected override void OnInitialized() => Session.Changed += OnChanged;
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => Session.Changed -= OnChanged;
+}

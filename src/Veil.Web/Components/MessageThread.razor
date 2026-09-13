@@ -1,0 +1,82 @@
+@inject AppSession Session
+@inject BrowserStorage Browser
+
+<div class="thread" @ref="_scroller">
+    @if (Messages.Count == 0)
+    {
+        <div class="thread-empty">
+            <div class="lock-big">🔒</div>
+            <p>Messages in this conversation are end-to-end encrypted. Nobody outside of it, not even the Veil server, can read them.</p>
+        </div>
+    }
+
+    @{ DateTime? day = null; }
+    @foreach (var m in Messages)
+    {
+        var local = m.SentAt.ToLocalTime();
+        if (day != local.Date)
+        {
+            day = local.Date;
+            <div class="day-separator"><span>@DayLabel(local.Date)</span></div>
+        }
+        <div class="bubble-row @(m.Outgoing ? "out" : "in")">
+            @if (!m.Outgoing && IsGroup)
+            {
+                <Avatar Id="m.SenderUserId" Name="@Session.DisplayNameOf(m.SenderUserId)" />
+            }
+            <div class="bubble">
+                @if (!m.Outgoing && IsGroup)
+                {
+                    <div class="bubble-sender" style="--hue: @AppSession.Hue(m.SenderUserId)">@Session.DisplayNameOf(m.SenderUserId)</div>
+                }
+                <div class="bubble-text">@m.Body</div>
+                <div class="bubble-meta">
+                    <span>@local.ToString("HH:mm")</span>
+                    @if (m.Outgoing)
+                    {
+                        <span class="ticks" title="@(m.Status == MessageStatus.Delivered ? $"Delivered to {m.DeliveredDevices} device(s)" : "Sent")">@(m.Status == MessageStatus.Delivered ? "✓✓" : "✓")</span>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (TypingNames.Count > 0)
+    {
+        <div class="typing">@string.Join(", ", TypingNames) @(TypingNames.Count == 1 ? "is" : "are") typing<span class="dots"><i></i><i></i><i></i></span></div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<StoredMessage> Messages { get; set; } = [];
+    [Parameter] public bool IsGroup { get; set; }
+    [Parameter] public IReadOnlyList<string> TypingNames { get; set; } = [];
+
+    private ElementReference _scroller;
+    private int _renderedCount = -1;
+    private bool _stickToBottom = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_renderedCount >= 0 && Messages.Count != _renderedCount)
+        {
+            _stickToBottom = await Browser.IsNearBottomAsync(_scroller) || (Messages.Count > 0 && Messages[^1].Outgoing);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender || (Messages.Count != _renderedCount && _stickToBottom))
+        {
+            await Browser.ScrollToBottomAsync(_scroller);
+        }
+
+        _renderedCount = Messages.Count;
+    }
+
+    private static string DayLabel(DateTime date)
+    {
+        var today = DateTime.Now.Date;
+        return date == today ? "Today" : date == today.AddDays(-1) ? "Yesterday" : date.ToString("d MMMM yyyy");
+    }
+}

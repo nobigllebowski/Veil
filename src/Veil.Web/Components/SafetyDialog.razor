@@ -1,0 +1,39 @@
+@inject AppSession Session
+
+<Modal Title="Verify safety numbers" OnClose="OnClose">
+    <p class="muted">Compare these digits with your contact over a channel you trust (in person, a call). Matching numbers prove that nobody, including the server, substituted keys.</p>
+    @foreach (var member in Conversation.Members.Where(m => m.UserId != Session.UserId))
+    {
+        <div class="safety-block">
+            <div class="member-name">@member.DisplayName <span class="muted">@@@member.Username</span></div>
+            @foreach (var deviceId in member.DeviceIds)
+            {
+                var identity = Session.Messenger?.KnownIdentityOf(member.UserId, deviceId);
+                <div class="safety-device">
+                    <div class="muted">device @deviceId.ToString("N")[..8]</div>
+                    @if (identity is null)
+                    {
+                        <div class="muted">No session yet, send a message first.</div>
+                    }
+                    else
+                    {
+                        <code class="safety-number">@Session.Messenger!.SafetyNumberWith(member.Username, identity)</code>
+                        <div class="muted">identity @AppSession.Fingerprint(identity)</div>
+                    }
+                </div>
+            }
+        </div>
+    }
+    @if (Session.Messenger?.Identity is { } own)
+    {
+        <div class="safety-block">
+            <div class="member-name">Your identity on this device</div>
+            <code class="safety-number">@AppSession.Fingerprint(own)</code>
+        </div>
+    }
+</Modal>
+
+@code {
+    [Parameter, EditorRequired] public ConversationSummary Conversation { get; set; } = null!;
+    [Parameter] public EventCallback OnClose { get; set; }
+}

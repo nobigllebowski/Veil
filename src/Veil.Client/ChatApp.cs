@@ -68,8 +68,8 @@ internal sealed class ChatApp(Uri server, DirectoryInfo stateDir, bool insecure)
                 return true;
             }
 
-            var receipt = await _messenger!.SendTextAsync(_current.Id, line, ct);
-            AnsiConsole.MarkupLine($"[grey]{DateTime.Now:HH:mm}[/] [green]you:[/] {Markup.Escape(line)} [grey](→ {receipt.Stored} device(s))[/]");
+            await _messenger!.SendTextAsync(_current.Id, line, ct);
+            AnsiConsole.MarkupLine($"[grey]{DateTime.Now:HH:mm}[/] [green]you:[/] {Markup.Escape(line)}");
             return true;
         }
 
@@ -367,6 +367,7 @@ internal sealed class ChatApp(Uri server, DirectoryInfo stateDir, bool insecure)
     private void AttachMessengerEvents()
     {
         _messenger!.Warning += w => AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(w)}[/]");
+        _messenger.MessageUpdated += m => AnsiConsole.MarkupLine($"[grey]✓✓ delivered: {Markup.Escape(m.Body.Length > 24 ? m.Body[..24] + "…" : m.Body)}[/]");
         _messenger.IdentityChanged += change =>
             AnsiConsole.MarkupLine($"[red bold]Identity key of {Markup.Escape(NameOf(change.UserId))} device {change.DeviceId.ToString("N")[..8]} changed![/] Verify the safety number before trusting new messages.");
     }

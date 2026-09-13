@@ -14,8 +14,10 @@ using Veil.Domain.Messages;
 namespace Veil.Application.Features.Messages;
 
 /// <summary>
-/// Stores one ciphertext per recipient device. The server enforces that the sender addressed every active device
-/// of every member (except its own), so no device can silently be left out of a conversation.
+/// Stores one ciphertext per recipient device. The server enforces that for every user the sender addressed, every
+/// active device of that user is addressed too (the sender's own current device excepted), so a device can never be
+/// silently left out. Which users are addressed is the client's choice: chat messages go to every member, delivery
+/// receipts only to the original sender.
 /// </summary>
 public sealed record SendEnvelopesCommand(Guid ConversationId, IReadOnlyList<OutgoingEnvelope> Envelopes) : ICommand<Result<SendReceipt>>;
 
@@ -71,14 +73,14 @@ internal sealed class SendEnvelopesCommandHandler(
             return MessageErrors.RecipientNotMember;
         }
 
-        var expected = (await devices.ListActiveByUsersAsync(memberIds, cancellationToken))
-            .Where(d => d.Id != senderDeviceId)
-            .GroupBy(d => d.UserId)
-            .ToDictionary(g => g.Key, g => g.Select(d => d.Id).ToHashSet());
-
         var addressed = request.Envelopes
             .GroupBy(e => e.RecipientUserId)
             .ToDictionary(g => g.Key, g => g.Select(e => e.RecipientDeviceId).ToHashSet());
+
+        var expected = (await devices.ListActiveByUsersAsync(addressed.Keys.ToList(), cancellationToken))
+            .Where(d => d.Id != senderDeviceId)
+            .GroupBy(d => d.UserId)
+            .ToDictionary(g => g.Key, g => g.Select(d => d.Id).ToHashSet());
 
         var mismatches = new List<DeviceSetMismatch>();
         foreach (var userId in expected.Keys.Union(addressed.Keys))

@@ -161,11 +161,22 @@ if (app.Configuration.GetValue("Https:Redirect", true))
 }
 
 app.UseMiddleware<SecurityHeadersMiddleware>();
+
+// The Blazor WebAssembly client is served from the same origin as the API: no CORS, one deployable unit.
+// Static files must run before routing so the SPA fallback route cannot claim framework or asset requests.
+app.UseBlazorFrameworkFiles();
+app.UseDefaultFiles();
+app.UseStaticFiles();
+app.UseRouting();
 app.UseSerilogRequestLogging(options => options.GetLevel = (ctx, _, ex) =>
     ex is not null || ctx.Response.StatusCode >= 500 ? Serilog.Events.LogEventLevel.Error
     : ctx.Request.Path.StartsWithSegments("/health") || ctx.Request.Path.StartsWithSegments("/alive") ? Serilog.Events.LogEventLevel.Verbose
     : Serilog.Events.LogEventLevel.Information);
-app.UseCors();
+if (app.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() is { Length: > 0 })
+{
+    app.UseCors(); // only for a client served from another origin; the bundled Blazor client is same-origin
+}
+
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -173,6 +184,7 @@ app.UseAuthorization();
 app.MapDefaultEndpoints();
 app.MapVeilApi();
 app.MapHub<ChatHub>("/hubs/chat");
+app.MapFallbackToFile("{*path:regex(^(?!(api|hubs|health|alive|openapi|scalar|\\.well-known)(/|$)).*$)}", "index.html").AllowAnonymous();
 
 if (app.Configuration.GetValue("OpenApi:Enabled", app.Environment.IsDevelopment()))
 {

@@ -3,7 +3,7 @@
   <img src="https://img.shields.io/badge/C%23-14-239120?logo=csharp&logoColor=white" alt="C# 14">
   <img src="https://img.shields.io/badge/E2EE-PQXDH%20%2B%20Double%20Ratchet-6f42c1" alt="E2EE">
   <img src="https://img.shields.io/badge/post--quantum-ML--KEM--768-0a7f5a" alt="ML-KEM-768">
-  <img src="https://img.shields.io/badge/tests-156%20passing-2ea44f" alt="tests">
+  <img src="https://img.shields.io/badge/tests-159%20passing-2ea44f" alt="tests">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
 </p>
 
@@ -12,16 +12,18 @@
 
 Veil is a Signal-style secure messaging platform: a hardened ASP.NET Core API, a real-time SignalR hub, a
 pure-C# implementation of the **PQXDH** key agreement (X25519 + post-quantum **ML-KEM-768**) and the
-**Double Ratchet**, a client SDK, and a terminal client. Message content is encrypted on the sender's device
-and decrypted only on the recipient's devices; the server routes ciphertext and deletes it once delivered.
+**Double Ratchet**, a client SDK, a **Blazor WebAssembly web client** served by the API, and a terminal
+client. Message content is encrypted on the sender's device and decrypted only on the recipient's devices;
+the server routes ciphertext and deletes it once delivered.
 
 ```
-┌──────────────┐  PQXDH handshake, Double Ratchet, AES-256-GCM   ┌──────────────┐
-│  veil (CLI)  │◄════════════════ end-to-end ════════════════════►│  veil (CLI)  │
-│  Client SDK  │                                                  │  Client SDK  │
-└──────┬───────┘                                                  └──────┬───────┘
-       │ HTTPS · JWT ES256 · SignalR/MessagePack                        │
-       ▼                                                                ▼
+┌──────────────────┐  PQXDH handshake, Double Ratchet, AES-256-GCM  ┌──────────────────┐
+│ Browser (WASM)   │◄═══════════════ end-to-end ═══════════════════►│ Browser (WASM)   │
+│ or terminal      │        crypto runs on the device               │ or terminal      │
+│ Client SDK       │                                                │ Client SDK       │
+└──────┬───────────┘                                                └──────┬───────────┘
+       │ HTTPS · JWT ES256 · SignalR (MessagePack or JSON)                 │
+       ▼                                                                   ▼
 ┌───────────────────────────── Veil.Api ─────────────────────────────────────┐
 │ Minimal APIs · rate limiting · security headers · ProblemDetails · OpenAPI │
 │ Application (CQRS + validation pipeline) · Domain (DDD aggregates)         │
@@ -56,11 +58,24 @@ and decrypted only on the recipient's devices; the server routes ciphertext and 
 - Layered rate limiting (per-IP for credentials, per-user for key fetches and lookups), strict CSP/COOP/CORP headers, RFC 9457 problem details, no server header, request body limits, HSTS preload in production.
 - Data minimisation workers purge delivered/expired ciphertext, dead tokens and processed outbox rows.
 
+**Web client (`Veil.Web`)**
+
+- A single-page messenger in **Blazor WebAssembly**: registration and login (with TOTP), chat list with unread
+  badges and presence, conversation view with delivery ticks and typing indicators, direct and group chats,
+  member management, safety-number verification, device management and TOTP enrolment (QR code).
+- The same `Veil.Client.Sdk` and `Veil.Crypto` run **inside the browser**: PQXDH, the Double Ratchet and
+  AES-GCM execute in WebAssembly, so plaintext never leaves the tab. Device keys, ratchet sessions and history
+  are stored in `localStorage` encrypted with AES-256-GCM under an Argon2id-derived key that lives only in
+  `sessionStorage` (a reload keeps you signed in, a closed tab asks for the password).
+- Served by the API from the same origin (no CORS, one deployable), under a strict CSP that allows
+  WebAssembly but no inline scripts or third-party hosts. Real-time updates over the SignalR hub, browser
+  notifications for new messages, responsive down to phone width.
+
 **Engineering**
 
 - .NET 10 LTS, C# 14, Minimal APIs, EF Core 10, Npgsql, SignalR with MessagePack + Redis backplane, HybridCache, OpenTelemetry (traces/metrics/logs), Serilog, .NET Aspire AppHost, Scalar API reference, central package management, analyzers with warnings-as-errors.
 - Clean Architecture with vertical slices, a dependency-free CQRS dispatcher with validation/logging behaviors, DDD aggregates raising domain events, a **transactional outbox** (`FOR UPDATE SKIP LOCKED`, at-least-once) feeding real-time notifications.
-- 156 tests: crypto known-answer tests, domain rules, handler unit tests, infrastructure services, executable architecture rules (NetArchTest) and end-to-end integration tests against real PostgreSQL and Redis (Testcontainers or CI service containers).
+- 159 tests: crypto known-answer tests, domain rules, handler unit tests, infrastructure services, executable architecture rules (NetArchTest), end-to-end integration tests against real PostgreSQL and Redis (Testcontainers or CI service containers), and a Playwright browser journey that drives the real web client in Chromium.
 - Chiseled, non-root, read-only container; Compose stack with Caddy TLS; GitHub Actions CI with format/analyzer gates, Trivy image scan, CodeQL and dependency review.
 
 ## Repository layout
@@ -76,10 +91,12 @@ src/
   Veil.ServiceDefaults/ OpenTelemetry, health checks, resilience, service discovery
   Veil.AppHost/         .NET Aspire orchestration (PostgreSQL + Redis + API with one F5)
   Veil.Client.Sdk/      Typed API client, real-time client, E2EE session manager, encrypted state store
+  Veil.Web/             Blazor WebAssembly messenger UI (hosted by Veil.Api, crypto runs in the browser)
   Veil.Client/          Terminal chat client
 tests/
   Veil.Crypto.Tests · Veil.Domain.Tests · Veil.Application.Tests · Veil.Infrastructure.Tests
   Veil.Api.IntegrationTests (real PostgreSQL/Redis) · Veil.Architecture.Tests
+  Veil.Web.E2ETests (Playwright: the real web client against the real API in Chromium)
 docs/                   ARCHITECTURE.md · PROTOCOL.md · THREAT_MODEL.md · adr/
 ```
 
@@ -94,7 +111,7 @@ dotnet run --project src/Veil.AppHost
 ```
 
 The Aspire dashboard shows PostgreSQL, Redis and the API with logs, traces and metrics. The API applies
-migrations on start and serves the interactive API reference at `/scalar/v1`.
+migrations on start, serves the **web client at its root** and the interactive API reference at `/scalar/v1`.
 
 ### Option B — backing services in Docker, API from the CLI
 
@@ -135,6 +152,14 @@ scripts/generate-secrets.sh > .env                 # random keys, ES256 signing 
 docker compose up --build                          # https://localhost via Caddy (locally-trusted cert)
 ```
 
+### Open the messenger
+
+Once the API is running, open **https://localhost:7443** (or the URL from the Aspire dashboard). Create an
+account, then open a second browser profile or a private window, create another account and start a chat
+with the first one by username. Messages, delivery ticks, typing and presence update live; the lock icon in
+the chat header shows the safety number that both sides can compare. Settings (top-left avatar) cover TOTP
+enrolment, devices and signing out with or without wiping the local encrypted state.
+
 ### Chat from two terminals
 
 ```bash
@@ -162,6 +187,17 @@ export VEIL_TEST_POSTGRES="Host=localhost;Port=5432;Database=veil_test;Username=
 export VEIL_TEST_REDIS="localhost:6379,defaultDatabase=5"
 dotnet test --solution Veil.slnx
 ```
+
+The browser test (`tests/Veil.Web.E2ETests`) boots the built API on a free port against PostgreSQL
+(`VEIL_E2E_POSTGRES`, default: the local development server, database `veil_e2e`, created on demand) and
+drives Chromium through Playwright. Install the browser once:
+
+```bash
+dotnet build tests/Veil.Web.E2ETests
+pwsh tests/Veil.Web.E2ETests/bin/Debug/net10.0/playwright.ps1 install chromium   # or: npx playwright install chromium
+```
+
+Set `VEIL_E2E_CHROMIUM=/path/to/chrome` to use an already installed Chromium instead.
 
 ## API overview
 
@@ -195,11 +231,12 @@ ships **development-only** keys so the project runs out of the box.
 | `RateLimiting:*` | Per-minute permits per limiter |
 | `Messaging:EnvelopeRetention` | How long undelivered ciphertext is kept (default 30 days) |
 | `Database:MigrateOnStartup` | Apply EF migrations on boot |
-| `ReverseProxy:*`, `Https:Redirect`, `Cors:AllowedOrigins`, `OpenApi:Enabled` | Deployment topology |
+| `ReverseProxy:*`, `Https:Redirect`, `OpenApi:Enabled` | Deployment topology |
+| `Cors:AllowedOrigins` | Only needed for a client hosted on another origin; the bundled web client is same-origin |
 
 ## Documentation
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — layers, request pipeline, outbox, persistence model
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — layers, request pipeline, outbox, persistence model, web client
 - [docs/PROTOCOL.md](docs/PROTOCOL.md) — the wire protocol and cryptographic construction, step by step
 - [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) — assets, adversaries, what is and is not protected
 - [docs/adr/](docs/adr/) — architecture decision records
@@ -211,7 +248,7 @@ ships **development-only** keys so the project runs out of the box.
 - Sender Keys for large groups (pairwise fan-out is O(devices) today)
 - Sealed sender and one-time post-quantum pre-keys
 - Attachments (client-side encrypted blobs with server-side opaque storage)
-- WebAuthn/passkeys as a second factor, push notifications, a web client
+- WebAuthn/passkeys as a second factor, Web Push notifications, installable PWA with offline queueing
 
 ## License
 

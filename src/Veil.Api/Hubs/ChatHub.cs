@@ -32,18 +32,39 @@ public sealed class ChatHub(IPresenceTracker presence, IConversationRepository c
 
         await Groups.AddToGroupAsync(Context.ConnectionId, UserGroup(userId), Context.ConnectionAborted);
         await Groups.AddToGroupAsync(Context.ConnectionId, DeviceGroup(deviceId), Context.ConnectionAborted);
-        await presence.ConnectedAsync(userId, Context.ConnectionId, Context.ConnectionAborted);
+        if (await presence.ConnectedAsync(userId, Context.ConnectionId, Context.ConnectionAborted))
+        {
+            await NotifyContactsAsync(userId, isOnline: true, Context.ConnectionAborted);
+        }
+
         await base.OnConnectedAsync();
     }
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        if (CurrentUser.TryGetUserId(Context.User) is { } userId)
+        if (CurrentUser.TryGetUserId(Context.User) is { } userId &&
+            await presence.DisconnectedAsync(userId, Context.ConnectionId, CancellationToken.None))
         {
-            await presence.DisconnectedAsync(userId, Context.ConnectionId, CancellationToken.None);
+            await NotifyContactsAsync(userId, isOnline: false, CancellationToken.None);
         }
 
         await base.OnDisconnectedAsync(exception);
+    }
+
+    /// <summary>Tells everyone who shares a conversation with the user that their presence changed.</summary>
+    private async Task NotifyContactsAsync(Guid userId, bool isOnline, CancellationToken cancellationToken)
+    {
+        var contacts = (await conversations.ListForUserAsync(userId, cancellationToken))
+            .SelectMany(c => c.Members.Select(m => m.UserId))
+            .Where(id => id != userId)
+            .Distinct()
+            .Select(UserGroup)
+            .ToList();
+
+        if (contacts.Count > 0)
+        {
+            await Clients.Groups(contacts).PresenceChanged(new PresenceNotification(userId, isOnline));
+        }
     }
 
     /// <summary>Keeps presence alive; clients call it every minute or so.</summary>
