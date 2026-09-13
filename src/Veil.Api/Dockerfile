@@ -5,7 +5,7 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-COPY Directory.Build.props Directory.Packages.props global.json ./
+COPY Directory.Build.props Directory.Packages.props global.json .editorconfig ./
 # Project files of the API's dependency graph only, so the restore layer is reused until a reference changes.
 COPY src/Veil.Crypto/Veil.Crypto.csproj                   src/Veil.Crypto/
 COPY src/Veil.Contracts/Veil.Contracts.csproj             src/Veil.Contracts/
