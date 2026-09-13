@@ -6,7 +6,16 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY Directory.Build.props Directory.Packages.props global.json ./
-COPY --parents src/*/*.csproj ./
+# Project files of the API's dependency graph only, so the restore layer is reused until a reference changes.
+COPY src/Veil.Crypto/Veil.Crypto.csproj                   src/Veil.Crypto/
+COPY src/Veil.Contracts/Veil.Contracts.csproj             src/Veil.Contracts/
+COPY src/Veil.Domain/Veil.Domain.csproj                   src/Veil.Domain/
+COPY src/Veil.Application/Veil.Application.csproj         src/Veil.Application/
+COPY src/Veil.Infrastructure/Veil.Infrastructure.csproj   src/Veil.Infrastructure/
+COPY src/Veil.ServiceDefaults/Veil.ServiceDefaults.csproj src/Veil.ServiceDefaults/
+COPY src/Veil.Client.Sdk/Veil.Client.Sdk.csproj           src/Veil.Client.Sdk/
+COPY src/Veil.Web/Veil.Web.csproj                         src/Veil.Web/
+COPY src/Veil.Api/Veil.Api.csproj                         src/Veil.Api/
 RUN dotnet restore src/Veil.Api/Veil.Api.csproj
 
 COPY src/ src/
