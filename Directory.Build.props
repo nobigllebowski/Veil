@@ -42,6 +42,8 @@
   </PropertyGroup>
 
   <ItemGroup Condition="'$(IsTestProject)' == 'true'">
+    <!-- CI passes the report-trx option to dotnet test; the TRX extension must be registered in every test host. -->
+    <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" />
     <Using Include="Xunit" />
     <Using Include="Shouldly" />
   </ItemGroup>
